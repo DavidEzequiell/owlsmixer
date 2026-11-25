@@ -35,17 +35,21 @@ export function formatPan(pan) {
   return pan < 0 ? `${Math.round(-pan * 50)}L` : `${Math.round(pan * 50)}R`;
 }
 
+export const APP_VERSION = "0.0.7";
+
 const DEFAULT_SETTINGS = {
   volUnit: "db",
   zMode: "gibson",
   showReverbCubes: true,
   showVolLevels: true,
   showFreqBands: true,
+  showFloorShadows: true,
+  showDropLines: true,
   showEqTips: true,
   freqSizing: true,
-  showCollisions: true,    // Nuevo: Detector Solar Eclipse en 3D
-  lufsTarget: "indie",     // Nuevo: streaming | indie | heavy | acoustic
-  autoSize: true,   // Crest Factor + corte <300Hz en EQ
+  showCollisions: true,    // Detector Solar Eclipse en 3D
+  lufsTarget: "indie",     // streaming | indie | heavy | acoustic
+  autoSize: true,          // Crest Factor + corte <300Hz en EQ
   skin: "gibson_dark",
 };
 
@@ -258,11 +262,6 @@ class Store extends EventTarget {
     this.activeBank = slot;
     this.isDryBypass = false;
     this.dryReturnSnapshot = null;
-    // Escenas por sección (Tanda 4)
-    this.scenes = []; // [{ id, beat, bar, bank, label }]
-    this.scenesAutoEnabled = false;
-    this.currentSongBeat = 0;
-    this.lastSceneRuleId = null;
     this.emit("banks-changed");
   }
 
@@ -358,7 +357,7 @@ class Store extends EventTarget {
   buildExportPayload() {
     return {
       app: "Owls3DMixer",
-      version: "0.0.5",
+      version: APP_VERSION,
       projectTitle: "Mix by OwlsMixer3D",
       exportedAt: new Date().toISOString(),
       settings: this.settings,

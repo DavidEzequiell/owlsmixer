@@ -23,6 +23,29 @@
     </div>
   </div>
 
+  <!-- Crash / Error Recovery Overlay -->
+  <div id="error-overlay" class="error-overlay hidden" role="alertdialog" aria-modal="true">
+    <div class="error-card">
+      <div class="error-header">
+        <span>⚠ <span id="error-title">Error cargando el proyecto</span></span>
+        <button id="btn-error-dismiss" class="mini-btn" title="Cerrar aviso">✕</button>
+      </div>
+      <div class="error-body">
+        <p id="error-message" class="error-message"></p>
+        <p id="error-hint" class="error-hint"></p>
+        <details class="error-details-wrap">
+          <summary>Ver detalle técnico</summary>
+          <pre id="error-details" class="error-details"></pre>
+        </details>
+      </div>
+      <div class="error-actions">
+        <button id="btn-error-retry" class="primary">🔄 Reintentar</button>
+        <button id="btn-error-reset" class="mini-btn">🧹 Resetear preferencias</button>
+        <button id="btn-error-copy" class="mini-btn">📋 Copiar log</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Viewport 3D -->
   <div id="viewport">
     <!-- BARRA SUPERIOR: Zonas separadas por responsabilidad -->
@@ -44,8 +67,43 @@
       <div class="hud-spacer"></div>
 
       <!-- ZONA 2A: Presets -->
-      <div class="toolbar-pill" aria-label="Presets">
+      <!-- ZONA 2A: Presets & Ventanas -->
+      <div class="toolbar-pill" aria-label="Presets y Ventanas">
         <button id="btn-open-presets" class="primary">🎛 Presets</button>
+        <div class="top-dropdown" id="windows-dropdown">
+          <button id="btn-windows-menu" class="btn-toggle" title="Mostrar u ocultar ventanas flotantes y paneles de la sidebar">🪟 Ventanas ▾</button>
+          <div id="windows-popover" class="top-popover hidden">
+            <div class="dock-popover-title">Ventanas Flotantes</div>
+            <label class="layer-toggle-item">
+              <input type="checkbox" data-win-toggle="psycho" />
+              <span>📊 Espacio &amp; LUFS</span>
+            </label>
+            <label class="layer-toggle-item">
+              <input type="checkbox" data-win-toggle="reverb" />
+              <span>🌊 Return A · Reverb 3D</span>
+            </label>
+            <label class="layer-toggle-item">
+              <input type="checkbox" data-win-toggle="scenes" />
+              <span>🎬 Escenas / Timeline</span>
+            </label>
+            <label class="layer-toggle-item">
+              <input type="checkbox" data-win-toggle="presets" />
+              <span>🎛 Presets (Gibson)</span>
+            </label>
+            <div class="dock-popover-sep"></div>
+            <div class="dock-popover-title">Paneles en Sidebar</div>
+            <label class="layer-toggle-item">
+              <input type="checkbox" data-panel-toggle="groups" checked />
+              <span>◈ Grupos &amp; Conjunto</span>
+            </label>
+            <label class="layer-toggle-item">
+              <input type="checkbox" data-panel-toggle="inspector" checked />
+              <span>🎚 Inspector de Pista</span>
+            </label>
+            <div class="dock-popover-sep"></div>
+            <button id="btn-reset-windows" class="mini-btn" style="width:100%">↺ Restablecer posiciones</button>
+          </div>
+        </div>
       </div>
 
       <!-- ZONA 2B: Bancos A/B/C/D, Bypass DRY & Snapshots -->
@@ -63,12 +121,9 @@
         <input id="file-load-mix" type="file" accept=".json" class="hidden" />
       </div>
 
-      <!-- ZONA 2C: Skins & Configuración de la App -->
-      <div class="toolbar-pill" aria-label="Apariencia y Opciones">
-        <span class="toolbar-label">Skin</span>
-        <select id="skin-select" title="Cambiar skin visual"></select>
-        <span class="pill-sep"></span>
-        <button id="btn-settings" class="btn-ghost" title="Opciones y Guía del libro">⚙ Opciones</button>
+      <!-- ZONA 2C: Configuración y Vista -->
+      <div class="toolbar-pill" aria-label="Opciones y Vista">
+        <button id="btn-settings" class="btn-ghost" title="Opciones, Skins y Guía">⚙ Opciones</button>
         <button id="btn-toggle-sidebar" class="btn-icon" title="Ocultar/Mostrar panel lateral (Tecla F)">◧</button>
         <button id="btn-fullscreen" class="btn-icon" title="Pantalla completa real">⛶</button>
       </div>
@@ -95,12 +150,42 @@
       <button id="btn-zmode" class="btn-ghost">Eje Z: Volumen</button>
       <span class="help-icon" data-help="Modo Gibson (p. 40 y 304): Arrastrar adelante/atrás controla Volumen (6 niveles) y la rueda controla Reverb Send A. Modo Espacial invierte ambos.">?</span>
       <span class="pill-sep"></span>
-      <button id="btn-quick-reverb" class="btn-toggle active" title="Mostrar/ocultar cubos translúcidos de Reverb en el 3D">Cubos Reverb</button>
-      <button id="btn-quick-levels" class="btn-toggle active" title="Mostrar/ocultar franjas VOL LVL 1-6 en el piso">Niveles Piso</button>
-      <button id="btn-quick-collisions" class="btn-toggle active" title="Mostrar/ocultar alertas 3D de enmascaramiento (Solar Eclipse)">Choques</button>
+
+      <!-- Menú desplegable de Capas Visuales 3D -->
+      <div class="dock-dropdown" id="layers-dropdown">
+        <button id="btn-layers-menu" class="btn-toggle" title="Mostrar u ocultar capas y efectos visuales del escenario 3D">👁 Capas ▾</button>
+        <div id="layers-popover" class="dock-popover hidden">
+          <div class="dock-popover-title">Capas del Escenario 3D</div>
+          <label class="layer-toggle-item">
+            <input type="checkbox" data-layer-setting="showReverbCubes" checked />
+            <span>Cubos de Reverb</span>
+          </label>
+          <label class="layer-toggle-item">
+            <input type="checkbox" data-layer-setting="showVolLevels" checked />
+            <span>Niveles en el Piso (LVL 1–6)</span>
+          </label>
+          <label class="layer-toggle-item">
+            <input type="checkbox" data-layer-setting="showFreqBands" checked />
+            <span>Bandas Freq atrás</span>
+          </label>
+          <label class="layer-toggle-item">
+            <input type="checkbox" data-layer-setting="showCollisions" checked />
+            <span>Choques (Solar Eclipse)</span>
+          </label>
+          <div class="dock-popover-sep"></div>
+          <label class="layer-toggle-item">
+            <input type="checkbox" data-layer-setting="showFloorShadows" checked />
+            <span>Sombras en el piso</span>
+          </label>
+          <label class="layer-toggle-item">
+            <input type="checkbox" data-layer-setting="showDropLines" checked />
+            <span>Líneas y aros guía</span>
+          </label>
+        </div>
+      </div>
+
       <button id="btn-auto-size" class="btn-toggle active" title="Auto-Size: Escala esferas según Crest Factor (densidad real) y cortes <300Hz">Auto-Size</button>
       <button id="btn-flash-freeze" class="btn-toggle" title="FLASH: Congela el pulso/Crest de los meters para posicionar cómodo">⚡ Flash</button>
-
     </div>
 
     <!-- ZONA 4 (Inferior Izquierda): Atajos plegables -->
@@ -114,85 +199,10 @@
   <div id="sidebar-resizer" title="Arrastrá para cambiar el ancho del panel"></div>
 
   <!-- Sidebar Derecha (Solo controles de Mezcla) -->
+  
   <aside id="sidebar">
-    <!-- Analizador Psicoacústico: LUFS, Espacio 3D y Enmascaramiento (US-08) -->
-    <div class="panel-section collapsible-section" data-section="psycho" id="psycho-panel">
-      <div class="panel-title clickable-title">
-        <span><span class="sec-arrow">▼</span> Espacio &amp; LUFS (US-08)</span>
-        <div class="title-right" onclick="event.stopPropagation()">
-          <span id="badge-density-zone" class="pill-info zone-sparse">Sparse</span>
-          <span class="help-icon" data-help="Calcula el volumen real ocupado en la caja 3D (esferas + elipsoides + cubos de reverb) según tu objetivo de LUFS, mide el Master Short-Term (3s) y detecta colisiones de enmascaramiento (Solar Eclipse, Visual 23).">?</span>
-        </div>
-      </div>
-      <div class="section-body">
-        <div class="psycho-top-row">
-          <select id="sel-lufs-target" title="Objetivo de sonoridad y densidad de mezcla"></select>
-          <div class="master-lufs-box">
-            <span id="val-master-lufs">-- LUFS</span>
-            <span id="badge-clip" class="clip-badge hidden">CLIP</span>
-          </div>
-        </div>
-
-        <div class="space-meter-wrap">
-          <div class="slider-label">
-            <span>Ocupación de la Caja: <b id="val-space-pct">0%</b></span>
-            <span>Low-End (&lt;250Hz): <b id="val-lowend-pct">0%</b></span>
-          </div>
-          <div class="space-bar"><div id="bar-space-fill" class="space-bar-fill zone-sparse"></div></div>
-        </div>
-
-        <div id="collision-list" class="collision-list"></div>
-      </div>
-    </div>
-
-    <!-- Escenas por Sección / Timeline (Tanda 4) -->
-    <div class="panel-section collapsible-section collapsed" data-section="scenes" id="scenes-panel">
-      <div class="panel-title clickable-title">
-        <span><span class="sec-arrow">▶</span> Escenas / Timeline (A–D)</span>
-        <div class="title-right" onclick="event.stopPropagation()">
-          <span id="val-song-bar" class="pill-info">Compás 1</span>
-          <button id="btn-scenes-auto" class="mini-btn" title="Cambia automáticamente entre Bancos A/B/C/D según el compás en Ableton">Auto: OFF</button>
-        </div>
-      </div>
-      <div class="section-body">
-        <div class="row">
-          <button id="btn-add-scene" class="mini-btn primary-soft">+ Escena en compás actual</button>
-          <button id="btn-import-cues" class="mini-btn" title="Importar Locators/Cue Points desde Ableton Live">📍 Locators</button>
-        </div>
-        <div id="scenes-list" class="scenes-list"></div>
-      </div>
-    </div>
-
-    <!-- Return A Reverb -->
-    <div class="panel-section collapsible-section" data-section="reverb">
-      <div class="panel-title clickable-title">
-        <span><span class="sec-arrow">▼</span> Return A · Reverb 3D</span>
-        <div class="title-right" onclick="event.stopPropagation()">
-          <span id="reverb-device-name" class="pill-info">Buscando...</span>
-          <span class="help-icon" data-help="Controla la Reverb en Return A de Ableton (o plugins compatibles por Adapter). Decay escala el tamaño del cubo 3D; Pre-Delay separa voz seca y cola (Visual 103).">?</span>
-        </div>
-      </div>
-      <div class="section-body">
-        <div class="reverb-grid">
-          <div class="slider-group">
-            <div class="slider-label"><span>Decay (Sala)</span><span id="val-rev-decay">--</span></div>
-            <input id="sl-rev-decay" type="range" min="0" max="1" step="0.01" value="0.5" disabled />
-          </div>
-          <div class="slider-group">
-            <div class="slider-label"><span>Pre-Delay</span><span id="val-rev-predelay">--</span></div>
-            <input id="sl-rev-predelay" type="range" min="0" max="1" step="0.01" value="0.2" disabled />
-          </div>
-        </div>
-        <label class="group-toggle-label" style="margin-top:6px;">
-          <input id="chk-hide-reverb-3d" type="checkbox" />
-          Ocultar efectos de retorno (cubos Reverb) en el 3D
-          <span class="help-icon" data-help="Oculta visualmente los cubos translúcidos de Reverb (Visual 36) para despejar el mapa 3D. No apaga la reverb en Ableton.">?</span>
-        </label>
-      </div>
-    </div>
-
     <!-- Grupos -->
-    <div class="panel-section collapsible-section" data-section="groups">
+    <div class="panel-section collapsible-section" data-section="groups" id="section-groups">
       <div class="panel-title clickable-title">
         <span><span class="sec-arrow">▼</span> Grupos &amp; Conjunto</span>
         <div class="title-right" onclick="event.stopPropagation()">
@@ -314,6 +324,7 @@
   </aside>
 
   <!-- Ventana Flotante Independiente: PRESETS -->
+  <!-- Ventana Flotante: PRESETS -->
   <div id="presets-window" class="floating-window hidden">
     <div class="floating-header" id="presets-drag-handle">
       <span>🎛 Presets · The Art of Mixing</span>
@@ -332,6 +343,85 @@
       <div class="row" style="margin-top:8px;">
         <button id="btn-apply-preset" class="primary">Aplicar Preset a pistas desbloqueadas</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Ventana Flotante: ESPACIO & LUFS -->
+  <div id="psycho-window" class="floating-window win-psycho hidden">
+    <div class="floating-header" id="psycho-drag-handle">
+      <span>📊 Espacio &amp; LUFS</span>
+      <div class="title-right">
+        <span id="badge-density-zone" class="pill-info zone-sparse">Sparse</span>
+        <span class="help-icon" data-help="Calcula el volumen real ocupado en la caja 3D (esferas + elipsoides + cubos de reverb) según tu objetivo de LUFS, mide el Master Short-Term (3s) y detecta colisiones de enmascaramiento (Solar Eclipse, Visual 23).">?</span>
+        <button id="btn-close-psycho" class="mini-btn">✕</button>
+      </div>
+    </div>
+    <div class="floating-body">
+      <div class="psycho-top-row">
+        <select id="sel-lufs-target" title="Objetivo de sonoridad y densidad de mezcla"></select>
+        <div class="master-lufs-box">
+          <span id="val-master-lufs">-- LUFS</span>
+          <span id="badge-clip" class="clip-badge hidden">CLIP</span>
+        </div>
+      </div>
+
+      <div class="space-meter-wrap">
+        <div class="slider-label space-metrics-row">
+          <span>Caja: <b id="val-space-pct">0%</b></span>
+          <span>Low (&lt;250Hz): <b id="val-lowend-pct">0%</b></span>
+        </div>
+        <div class="space-bar"><div id="bar-space-fill" class="space-bar-fill zone-sparse"></div></div>
+      </div>
+
+      <div id="collision-list" class="collision-list"></div>
+    </div>
+  </div>
+
+  <!-- Ventana Flotante: RETURN A REVERB -->
+  <div id="reverb-window" class="floating-window win-reverb hidden">
+    <div class="floating-header" id="reverb-drag-handle">
+      <span>🌊 Return A · Reverb 3D</span>
+      <div class="title-right">
+        <span id="reverb-device-name" class="pill-info">Buscando...</span>
+        <span class="help-icon" data-help="Controla la Reverb en Return A de Ableton (o plugins compatibles por Adapter). Decay escala el tamaño del cubo 3D; Pre-Delay separa voz seca y cola (Visual 103).">?</span>
+        <button id="btn-close-reverb" class="mini-btn">✕</button>
+      </div>
+    </div>
+    <div class="floating-body">
+      <div class="reverb-grid">
+        <div class="slider-group">
+          <div class="slider-label"><span>Decay (Sala)</span><span id="val-rev-decay">--</span></div>
+          <input id="sl-rev-decay" type="range" min="0" max="1" step="0.01" value="0.5" disabled />
+        </div>
+        <div class="slider-group">
+          <div class="slider-label"><span>Pre-Delay</span><span id="val-rev-predelay">--</span></div>
+          <input id="sl-rev-predelay" type="range" min="0" max="1" step="0.01" value="0.2" disabled />
+        </div>
+      </div>
+      <label class="group-toggle-label" style="margin-top:8px;">
+        <input id="chk-hide-reverb-3d" type="checkbox" />
+        Ocultar cubos Reverb en el 3D
+        <span class="help-icon" data-help="Oculta visualmente los cubos translúcidos de Reverb (Visual 36) para despejar el mapa 3D. No apaga la reverb en Ableton.">?</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Ventana Flotante: ESCENAS / TIMELINE -->
+  <div id="scenes-window" class="floating-window win-scenes hidden">
+    <div class="floating-header" id="scenes-drag-handle">
+      <span>🎬 Escenas / Timeline (A–D)</span>
+      <div class="title-right">
+        <span id="val-song-bar" class="pill-info">Compás 1</span>
+        <button id="btn-scenes-auto" class="mini-btn" title="Cambia automáticamente entre Bancos A/B/C/D según el compás en Ableton">Auto: OFF</button>
+        <button id="btn-close-scenes" class="mini-btn">✕</button>
+      </div>
+    </div>
+    <div class="floating-body">
+      <div class="row">
+        <button id="btn-add-scene" class="mini-btn primary-soft">+ Escena en compás actual</button>
+        <button id="btn-import-cues" class="mini-btn" title="Importar Locators/Cue Points desde Ableton Live">📍 Locators</button>
+      </div>
+      <div id="scenes-list" class="scenes-list"></div>
     </div>
   </div>
 
@@ -365,6 +455,14 @@
       </div>
 
       <div id="tab-prefs" class="modal-body">
+        <div class="setting-row">
+          <div>
+            <b>Skin / Apariencia</b>
+            <p class="muted-note">Cambia la estética de la interfaz y del escenario 3D.</p>
+          </div>
+          <select id="opt-skin" title="Cambiar skin visual"></select>
+        </div>
+
         <div class="setting-row">
           <div>
             <b>Unidad de Volumen</b>
@@ -401,6 +499,16 @@
         <div class="setting-row">
           <div><b>Mostrar 6 Bandas de Frecuencia atrás (Chart 3)</b></div>
           <input id="opt-show-freq-bands" type="checkbox" checked />
+        </div>
+
+        <div class="setting-row">
+          <div><b>Mostrar Sombras en el Piso</b></div>
+          <input id="opt-show-floor-shadows" type="checkbox" checked />
+        </div>
+
+        <div class="setting-row">
+          <div><b>Mostrar Líneas y Aros Guía en el Piso</b></div>
+          <input id="opt-show-drop-lines" type="checkbox" checked />
         </div>
 
         <div class="setting-row">

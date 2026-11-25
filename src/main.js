@@ -6,14 +6,17 @@ import { HudUI } from "./ui/HudUI.js";
 import { SidebarUI } from "./ui/SidebarUI.js";
 import { PresetsModalUI } from "./ui/PresetsModalUI.js";
 import { SettingsModalUI } from "./ui/SettingsModalUI.js";
+import { ErrorHandlerUI } from "./ui/ErrorHandlerUI.js";
 import { analyzeMixSpace } from "./engine/psychoacoustics.js";
 import { PsychoPanelUI } from "./ui/PsychoPanelUI.js";
+import { WindowManager } from "./ui/WindowManager.js";
 
 const viewportEl = document.getElementById("viewport");
 const sidebarEl = document.getElementById("sidebar");
 const resizerEl = document.getElementById("sidebar-resizer");
 const loadingOverlay = document.getElementById("loading-overlay");
 const loadingText = document.getElementById("loading-text");
+const errorHandler = new ErrorHandlerUI();
 
 function showLoading(msg = "Cargando...") {
   loadingText.textContent = msg;
@@ -31,13 +34,35 @@ async function withLoading(msg, fn) {
   }
 }
 
-const stage = new Stage3D(viewportEl);
+let stage;
+try {
+  stage = new Stage3D(viewportEl);
+} catch (err) {
+  errorHandler.show({
+    title: "Error iniciando el visor 3D (WebGL)",
+    message: err.message,
+    error: err,
+    onRetry: () => window.location.reload(),
+  });
+  throw err;
+}
+
+stage.attachContextLossHandler((err) => {
+  errorHandler.show({
+    title: "Se perdió la aceleración 3D (WebGL)",
+    message: err.message,
+    error: err,
+    onRetry: () => window.location.reload(),
+  });
+});
+
 stage.onLiveMixTick = () => {
   runMixAnalysis();
   if (store.settings.autoSize && !sidebar.singleSliderBefore && store.getSelectedTracks().length === 1) {
     sidebar.updateInspector();
   }
 };
+
 const settingsModal = new SettingsModalUI();
 
 async function performUndo() {
@@ -70,7 +95,10 @@ async function handleImportMix(data) {
   });
 }
 
+const windowManager = new WindowManager();
+
 const presetsModal = new PresetsModalUI({
+  windowManager,
   onPresetApplied: () => {
     stage.updateAllOrbs();
     sidebar.updateInspector();
@@ -78,7 +106,41 @@ const presetsModal = new PresetsModalUI({
   },
 });
 
+windowManager.registerWindow("presets", {
+  el: document.getElementById("presets-window"),
+  handleEl: document.getElementById("presets-drag-handle"),
+  closeBtn: document.getElementById("btn-close-presets"),
+  defaultPos: { left: 16, top: 64 },
+  onOpen: () => presetsModal.refreshMeta(),
+});
+
+windowManager.registerWindow("psycho", {
+  el: document.getElementById("psycho-window"),
+  handleEl: document.getElementById("psycho-drag-handle"),
+  closeBtn: document.getElementById("btn-close-psycho"),
+  defaultPos: { left: 16, top: 64 },
+  onOpen: () => runMixAnalysis(),
+});
+
+windowManager.registerWindow("reverb", {
+  el: document.getElementById("reverb-window"),
+  handleEl: document.getElementById("reverb-drag-handle"),
+  closeBtn: document.getElementById("btn-close-reverb"),
+  defaultPos: { left: 372, top: 64 },
+});
+
+windowManager.registerWindow("scenes", {
+  el: document.getElementById("scenes-window"),
+  handleEl: document.getElementById("scenes-drag-handle"),
+  closeBtn: document.getElementById("btn-close-scenes"),
+  defaultPos: { left: 16, top: 340 },
+});
+
+windowManager.registerSidebarPanel("groups", document.getElementById("section-groups"));
+windowManager.registerSidebarPanel("inspector", document.getElementById("inspector"));
+
 const hud = new HudUI({
+  windowManager,
   onRescan: () => rescanAll(),
   onUndo: performUndo,
   onRedo: performRedo,
@@ -87,6 +149,8 @@ const hud = new HudUI({
   onTogglePresets: () => presetsModal.toggle(),
   onImportMix: handleImportMix,
 });
+
+windowManager.onChange = () => hud.syncWindowsMenuUI();
 
 const sidebar = new SidebarUI({
   onTrackVisualChanged: (item) => {
@@ -124,12 +188,14 @@ new Interaction3D(stage, {
   onUndo: performUndo,
   onRedo: performRedo,
   onEscape: () => {
-    if (presetsModal.isPdfOpen()) presetsModal.closePdf();
+    if (hud.hasOpenPopover()) hud.closePopovers();
+    else if (presetsModal.isPdfOpen()) presetsModal.closePdf();
     else if (settingsModal.isOpen()) settingsModal.close();
     else if (presetsModal.isOpen()) presetsModal.close();
     else store.setSelection([]);
   },
 });
+
 
 // Resizer de Sidebar
 const savedW = parseInt(localStorage.getItem("owls3d_sidebar_w") || "0", 10);
@@ -313,9 +379,38 @@ async function rescanAll() {
     } catch (err) {
       hud.setStatus("err", "Error escaneando");
       console.error(err);
+      errorHandler.show({
+        title: "Error escaneando el proyecto de Ableton",
+        message: err?.message || "No se pudieron leer las pistas o dispositivos.",
+        error: err,
+        onRetry: () => rescanAll(),
+      });
     }
   });
 }
+
+async function bootApp() {
+  await withLoading("Conectando a Ableton Live...", async () => {
+    try {
+      await abletonService.connect();
+      loadingText.textContent = "Cargando pistas del proyecto...";
+      await abletonService.scanAll();
+    } catch (err) {
+      hud.setStatus("err", "Sin conexión a Ableton");
+      console.error(err);
+      errorHandler.show({
+        title: "No se pudo conectar con Ableton Live",
+        message: err?.message || "Fallo al conectar o leer el proyecto actual.",
+        error: err,
+        onRetry: () => bootApp(),
+      });
+    }
+  });
+}
+
+stage.applySkin(store.settings.skin);
+stage.applyStageSettings();
+await bootApp();
 
 stage.applySkin(store.settings.skin);
 stage.applyStageSettings();

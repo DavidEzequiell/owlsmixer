@@ -307,6 +307,7 @@ export class Interaction3D {
       this.draggingPrimary = null;
       this.stage.controls.enabled = true;
       dom.style.cursor = "default";
+      this.hideDragTooltip();
     });
 
     dom.addEventListener("wheel", (e) => {
@@ -400,7 +401,7 @@ export class Interaction3D {
         this.onEscape?.();
         return;
       }
-      if (e.key === "f") {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         document.body.classList.toggle("sidebar-hidden");
         document.getElementById("btn-toggle-sidebar")?.classList.toggle(

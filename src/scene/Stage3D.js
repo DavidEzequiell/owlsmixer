@@ -254,8 +254,15 @@ export class Stage3D {
   }
 
   rebuildGrids(s) {
-    if (this.stageRefs.floorGrid) this.scene.remove(this.stageRefs.floorGrid);
-    if (this.stageRefs.backGrid) this.scene.remove(this.stageRefs.backGrid);
+    const disposeHelper = (obj) => {
+      if (!obj) return;
+      this.scene.remove(obj);
+      obj.geometry?.dispose();
+      if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+      else obj.material?.dispose();
+    };
+    disposeHelper(this.stageRefs.floorGrid);
+    disposeHelper(this.stageRefs.backGrid);
 
     const floorGrid = new THREE.GridHelper(HALF_W * 2, 10, s.floorMain, s.floorSub);
     floorGrid.scale.z = HALF_D / HALF_W;
@@ -530,6 +537,19 @@ export class Stage3D {
     this.controls.update();
   }
 
+ attachContextLossHandler(onLost) {
+    this.contextLost = false;
+    this.renderer.domElement.addEventListener("webglcontextlost", (e) => {
+      e.preventDefault();
+      this.contextLost = true;
+      onLost?.(new Error("Se perdió el contexto WebGL de la tarjeta gráfica."));
+    });
+    this.renderer.domElement.addEventListener("webglcontextrestored", () => {
+      this.contextLost = false;
+      this.resize();
+    });
+  }
+
   resize() {
     this.camera.aspect = this.viewportEl.clientWidth / this.viewportEl.clientHeight;
     this.camera.updateProjectionMatrix();
@@ -539,6 +559,8 @@ export class Stage3D {
   startLoop() {
     const tick = () => {
       requestAnimationFrame(tick);
+      if (this.contextLost) return;
+
       this.controls.update();
       if (this.centroidMarker.visible) this.centroidMarker.rotation.y += 0.02;
 

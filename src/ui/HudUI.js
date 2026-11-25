@@ -1,9 +1,10 @@
-import { SKINS } from "../data/skins.js";
 import { store } from "../store.js";
 import { abletonService } from "../services/abletonService.js";
 
 export class HudUI {
-  constructor({ onRescan, onUndo, onRedo, onCamera, onOpenSettings, onTogglePresets, onImportMix }) {
+  constructor({ windowManager, onRescan, onUndo, onRedo, onCamera, onOpenSettings, onTogglePresets, onImportMix }) {
+    this.windowManager = windowManager;
+
     this.statusDot = document.getElementById("status-dot");
     this.statusText = document.getElementById("status-text");
     this.btnPlay = document.getElementById("btn-play");
@@ -12,14 +13,21 @@ export class HudUI {
     this.btnRedo = document.getElementById("btn-redo");
     this.btnPresets = document.getElementById("btn-open-presets");
     this.btnZMode = document.getElementById("btn-zmode");
-    this.btnQuickReverb = document.getElementById("btn-quick-reverb");
-    this.btnQuickLevels = document.getElementById("btn-quick-levels");
-    this.btnQuickCollisions = document.getElementById("btn-quick-collisions");
-    this.btnQuickCollisions.addEventListener("click", () => {
-      this.btnQuickCollisions.blur();
-      store.updateSettings({ showCollisions: !store.settings.showCollisions });
-    });
-    this.skinSelect = document.getElementById("skin-select");
+
+    // Menú desplegable de Ventanas en la barra superior
+    this.windowsDropdown = document.getElementById("windows-dropdown");
+    this.btnWindowsMenu = document.getElementById("btn-windows-menu");
+    this.windowsPopover = document.getElementById("windows-popover");
+    this.winToggleInputs = document.querySelectorAll("#windows-popover input[data-win-toggle]");
+    this.panelToggleInputs = document.querySelectorAll("#windows-popover input[data-panel-toggle]");
+    this.btnResetWindows = document.getElementById("btn-reset-windows");
+
+    // Menú desplegable de Capas en el Dock
+    this.layersDropdown = document.getElementById("layers-dropdown");
+    this.btnLayersMenu = document.getElementById("btn-layers-menu");
+    this.layersPopover = document.getElementById("layers-popover");
+    this.layerInputs = document.querySelectorAll("#layers-popover input[data-layer-setting]");
+
     this.btnSaveMix = document.getElementById("btn-save-mix");
     this.btnLoadMix = document.getElementById("btn-load-mix");
     this.fileLoadMix = document.getElementById("file-load-mix");
@@ -48,17 +56,59 @@ export class HudUI {
       store.toggleFlashFreeze();
     });
 
-    Object.entries(SKINS).forEach(([key, sk]) => {
-      const opt = document.createElement("option");
-      opt.value = key;
-      opt.textContent = sk.name;
-      if (key === store.settings.skin) opt.selected = true;
-      this.skinSelect.appendChild(opt);
+    // Wiring del popover 🪟 Ventanas ▾
+    this.btnWindowsMenu.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.btnWindowsMenu.blur();
+      const willOpen = this.windowsPopover.classList.contains("hidden");
+      this.closePopovers();
+      if (willOpen) {
+        this.syncWindowsMenuUI();
+        this.windowsPopover.classList.remove("hidden");
+        this.btnWindowsMenu.classList.add("active");
+      }
     });
 
-    this.skinSelect.addEventListener("change", () => {
-      this.skinSelect.blur();
-      store.updateSettings({ skin: this.skinSelect.value });
+    this.winToggleInputs.forEach((inp) => {
+      inp.addEventListener("change", () => {
+        this.windowManager?.setWindowOpen(inp.dataset.winToggle, inp.checked);
+      });
+    });
+
+    this.panelToggleInputs.forEach((inp) => {
+      inp.addEventListener("change", () => {
+        this.windowManager?.setSidebarPanelVisible(inp.dataset.panelToggle, inp.checked);
+      });
+    });
+
+    this.btnResetWindows?.addEventListener("click", () => {
+      this.btnResetWindows.blur();
+      this.windowManager?.resetPositions();
+    });
+
+    // Wiring del popover 👁 Capas ▾
+    this.btnLayersMenu.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.btnLayersMenu.blur();
+      const willOpen = this.layersPopover.classList.contains("hidden");
+      this.closePopovers();
+      if (willOpen) {
+        this.layersPopover.classList.remove("hidden");
+        this.btnLayersMenu.classList.add("active");
+      }
+    });
+
+    this.layerInputs.forEach((inp) => {
+      inp.addEventListener("change", () => {
+        const key = inp.dataset.layerSetting;
+        if (key) store.updateSettings({ [key]: inp.checked });
+      });
+    });
+
+    document.addEventListener("pointerdown", (e) => {
+      if (!this.layersDropdown?.contains(e.target) && !this.windowsDropdown?.contains(e.target)) {
+        this.closePopovers();
+      }
     });
 
     this.btnPlay.addEventListener("click", () => { this.btnPlay.blur(); abletonService.togglePlay(false); });
@@ -66,6 +116,7 @@ export class HudUI {
     this.btnUndo.addEventListener("click", () => { this.btnUndo.blur(); onUndo(); });
     this.btnRedo.addEventListener("click", () => { this.btnRedo.blur(); onRedo(); });
     this.btnPresets.addEventListener("click", () => { this.btnPresets.blur(); onTogglePresets(); });
+
     this.bankBtns = document.querySelectorAll("#mix-banks-group .bank-btn");
     this.btnDryBypass = document.getElementById("btn-dry-bypass");
 
@@ -91,20 +142,10 @@ export class HudUI {
     });
 
     this.btnZMode.addEventListener("click", () => {
-    this.btnZMode.blur();
-    const order = ["gibson", "depth", "spatial"];
-    const next = order[(order.indexOf(store.settings.zMode) + 1) % order.length];
-    store.updateSettings({ zMode: next });
-  });
-
-    this.btnQuickReverb.addEventListener("click", () => {
-      this.btnQuickReverb.blur();
-      store.updateSettings({ showReverbCubes: !store.settings.showReverbCubes });
-    });
-
-    this.btnQuickLevels.addEventListener("click", () => {
-      this.btnQuickLevels.blur();
-      store.updateSettings({ showVolLevels: !store.settings.showVolLevels });
+      this.btnZMode.blur();
+      const order = ["gibson", "depth", "spatial"];
+      const next = order[(order.indexOf(store.settings.zMode) + 1) % order.length];
+      store.updateSettings({ zMode: next });
     });
 
     this.btnToggleShortcuts.addEventListener("click", () => {
@@ -170,6 +211,7 @@ export class HudUI {
     this.syncHistoryUI();
     this.syncViewModeUI();
     this.syncBanksUI();
+    this.syncWindowsMenuUI();
   }
 
   syncViewModeUI() {
@@ -211,24 +253,49 @@ export class HudUI {
     this.btnRedo.disabled = !store.canRedo();
   }
 
+  hasOpenPopover() {
+    return (
+      Boolean(this.layersPopover && !this.layersPopover.classList.contains("hidden")) ||
+      Boolean(this.windowsPopover && !this.windowsPopover.classList.contains("hidden"))
+    );
+  }
+
+  closePopovers() {
+    this.layersPopover?.classList.add("hidden");
+    this.btnLayersMenu?.classList.remove("active");
+    this.windowsPopover?.classList.add("hidden");
+    this.btnWindowsMenu?.classList.remove("active");
+  }
+
+  syncWindowsMenuUI() {
+    if (!this.windowManager) return;
+    this.winToggleInputs.forEach((inp) => {
+      inp.checked = this.windowManager.isWindowOpen(inp.dataset.winToggle);
+    });
+    this.panelToggleInputs.forEach((inp) => {
+      inp.checked = this.windowManager.isSidebarPanelVisible(inp.dataset.panelToggle);
+    });
+  }
+
   syncSettingsUI() {
     const zMode = store.settings.zMode;
     this.btnZMode.textContent =
-    zMode === "depth" ? "Eje Z: True Depth" : zMode === "spatial" ? "Eje Z: Reverb" : "Eje Z: Volumen";
+      zMode === "depth" ? "Eje Z: True Depth" : zMode === "spatial" ? "Eje Z: Reverb" : "Eje Z: Volumen";
     this.btnZMode.classList.toggle("active-toggle", zMode === "depth");
-    this.skinSelect.value = store.settings.skin;
-    this.btnQuickReverb.classList.toggle("active", store.settings.showReverbCubes);
-    this.btnQuickLevels.classList.toggle("active", store.settings.showVolLevels);
-    this.btnQuickCollisions.classList.toggle("active", store.settings.showCollisions);
     this.btnAutoSize.classList.toggle("active", store.settings.autoSize);
 
-     const dragDesc =
-          zMode === "depth"
-          ? "Pan (X) + Profundidad (Vol + Reverb inv. + Aire EQ)"
-          : zMode === "spatial"
-            ? "Pan (X) + Send A (Z)"
-            : "Pan (X) + Volumen (Z)";
-      const wheelDesc = zMode === "spatial" ? "Volumen" : "Reverb Send A";
+    this.layerInputs.forEach((inp) => {
+      const key = inp.dataset.layerSetting;
+      if (key) inp.checked = store.settings[key] !== false;
+    });
+
+    const dragDesc =
+      zMode === "depth"
+        ? "Pan (X) + Profundidad (Vol + Reverb inv. + Aire EQ)"
+        : zMode === "spatial"
+          ? "Pan (X) + Send A (Z)"
+          : "Pan (X) + Volumen (Z)";
+    const wheelDesc = zMode === "spatial" ? "Volumen" : "Reverb Send A";
 
     this.hudHelp.innerHTML =
       `<b>Space:</b> Play/Pause<br/>` +

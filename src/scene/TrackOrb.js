@@ -164,7 +164,7 @@ export class TrackOrb {
     });
   }
 
-sync(camera) {
+  sync(camera) {
     const item = this.item;
     const { settings } = store;
     const visible = store.viewMode === "mix" && !item.hidden && !(item.isGroup && !store.showBuses);
@@ -224,17 +224,30 @@ sync(camera) {
       if (camera) this.lockRing.lookAt(camera.position);
     }
 
-    // Drop line y sombra en el piso
-    const posAttr = this.dropLine.geometry.attributes.position;
-    posAttr.setXYZ(0, x, y, z);
-    posAttr.setXYZ(1, x, -HALF_H, z);
-    posAttr.needsUpdate = true;
+    // Drop line, aro guía y sombra en el piso (toggleables)
+    const showShadows = settings.showFloorShadows !== false;
+    const showGuides = settings.showDropLines !== false;
 
-    this.shadowDisc.position.set(x, -HALF_H + 0.015, z);
-    this.shadowDisc.scale.set(rx * 0.95, rz * 0.95, 1);
-    this.shadowDisc.material.opacity = isSilent ? 0.12 : 0.48;
+    this.dropLine.visible = showGuides;
+    if (showGuides) {
+      const posAttr = this.dropLine.geometry.attributes.position;
+      posAttr.setXYZ(0, x, y, z);
+      posAttr.setXYZ(1, x, -HALF_H, z);
+      posAttr.needsUpdate = true;
+    }
 
-    this.ring.position.set(x, -HALF_H + 0.025, z);
+    this.shadowDisc.visible = showShadows;
+    if (showShadows) {
+      this.shadowDisc.position.set(x, -HALF_H + 0.015, z);
+      this.shadowDisc.scale.set(rx * 0.95, rz * 0.95, 1);
+      this.shadowDisc.material.opacity = isSilent ? 0.12 : 0.48;
+    }
+
+    this.ring.visible = showGuides;
+    if (showGuides) {
+      this.ring.position.set(x, -HALF_H + 0.025, z);
+    }
+
     this.label.position.set(x, y + ry + 0.38, z);
 
     // Estados visuales Mute / Solo / Selección

@@ -1051,3 +1051,239 @@ body[data-skin="gibson_90s"] .carve-btn.suggested { background: #c596e8; color: 
 }
 .scene-name:focus { border-color: var(--accent); background: var(--bg-app); outline: none; }
 .scene-bank { padding: 2px 4px; font-size: 10.5px; }
+/* =========================================================================
+   CRASH / ERROR RECOVERY OVERLAY (v0.0.7)
+   ========================================================================= */
+.error-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 8, 15, 0.78);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+}
+.error-card {
+  width: 480px;
+  max-width: 92vw;
+  background: var(--bg-panel);
+  border: 1px solid var(--danger);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.7);
+}
+.error-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.14);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 700;
+  color: #fecaca;
+}
+.error-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.error-message { font-size: 12.5px; color: var(--text-main); line-height: 1.45; }
+.error-hint {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  border-left: 3px solid var(--warn);
+  padding: 8px 10px;
+  border-radius: 5px;
+  line-height: 1.45;
+}
+.error-details-wrap summary {
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.error-details {
+  margin-top: 6px;
+  max-height: 140px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 10.5px;
+  color: #fca5a5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+.error-actions {
+  display: flex;
+  gap: 8px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.error-actions .primary { flex: 1; }
+
+body[data-skin="gibson_90s"] .error-card {
+  border-radius: 0;
+  background: #c0c0c0;
+  color: #000;
+  border: 2px outset #ffffff;
+}
+body[data-skin="gibson_90s"] .error-header {
+  background: #800000;
+  color: #ffffff;
+}
+body[data-skin="gibson_90s"] .error-message,
+body[data-skin="gibson_90s"] .error-hint { color: #000; }
+
+/* =========================================================================
+   POPOVER DE CAPAS EN EL DOCK INFERIOR (v0.0.7)
+   ========================================================================= */
+.dock-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.dock-popover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.58);
+  z-index: 40;
+  white-space: nowrap;
+}
+.dock-popover-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 700;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+.dock-popover-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 2px 0;
+}
+.layer-toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-main);
+  padding: 3px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.layer-toggle-item:hover {
+  background: var(--bg-card-hover);
+}
+.layer-toggle-item input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+body[data-skin="gibson_90s"] .dock-popover {
+  background: #c0c0c0;
+  color: #000;
+  border-radius: 0;
+  border-top: 2px solid #fff;
+  border-left: 2px solid #fff;
+  border-right: 2px solid #404040;
+  border-bottom: 2px solid #404040;
+  box-shadow: 2px 2px 0 #000;
+}
+body[data-skin="gibson_90s"] .dock-popover-title,
+body[data-skin="gibson_90s"] .layer-toggle-item { color: #000; }
+
+body[data-skin="ableton_live"] .dock-popover {
+  background: #242424;
+  border: 1px solid #111;
+  border-radius: 4px;
+}
+
+body[data-skin="winamp_classic"] .dock-popover {
+  background: linear-gradient(180deg, #323848 0%, #232734 100%);
+  border-radius: 2px;
+  border: 1px solid #68738f;
+}
+
+/* =========================================================================
+   VENTANAS FLOTANTES & MENÚ VENTANAS EN BARRA SUPERIOR (v0.0.7)
+   ========================================================================= */
+.hud-top,
+.render-dock {
+  z-index: 90;
+}
+
+.floating-window {
+  z-index: 42;
+}
+.floating-window.win-psycho { width: 344px; }
+.floating-window.win-reverb { width: 320px; }
+.floating-window.win-scenes { width: 344px; }
+
+.space-metrics-row {
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.top-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.top-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 225px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.58);
+  z-index: 95;
+  white-space: nowrap;
+}
+
+body[data-skin="gibson_90s"] .top-popover {
+  background: #c0c0c0;
+  color: #000;
+  border-radius: 0;
+  border-top: 2px solid #fff;
+  border-left: 2px solid #fff;
+  border-right: 2px solid #404040;
+  border-bottom: 2px solid #404040;
+  box-shadow: 2px 2px 0 #000;
+}
+body[data-skin="ableton_live"] .top-popover {
+  background: #242424;
+  border: 1px solid #111;
+  border-radius: 4px;
+}
+body[data-skin="winamp_classic"] .top-popover {
+  background: linear-gradient(180deg, #323848 0%, #232734 100%);
+  border-radius: 2px;
+  border: 1px solid #68738f;
+}

@@ -6,12 +6,10 @@ import { abletonService } from "../services/abletonService.js";
 const PDF_STATIC_PATH = "./assets/art_of_mixing.pdf";
 
 export class PresetsModalUI {
-  constructor({ onPresetApplied }) {
+  constructor({ windowManager, onPresetApplied }) {
+    this.windowManager = windowManager;
     this.onPresetApplied = onPresetApplied;
 
-    this.win = document.getElementById("presets-window");
-    this.dragHandle = document.getElementById("presets-drag-handle");
-    this.btnClose = document.getElementById("btn-close-presets");
     this.select = document.getElementById("preset-select");
     this.btnPdfRef = document.getElementById("btn-open-pdf-ref");
     this.refBadge = document.getElementById("preset-ref-badge");
@@ -27,7 +25,6 @@ export class PresetsModalUI {
     this.btnClosePdf = document.getElementById("btn-close-pdf");
 
     this.populatePresets();
-    this.initDrag();
     this.bindEvents();
     this.refreshMeta();
   }
@@ -42,36 +39,9 @@ export class PresetsModalUI {
     });
   }
 
-  initDrag() {
-    let dragging = false;
-    let offX = 0;
-    let offY = 0;
-
-    this.dragHandle.addEventListener("pointerdown", (e) => {
-      if (e.target.tagName === "BUTTON") return;
-      dragging = true;
-      const rect = this.win.getBoundingClientRect();
-      offX = e.clientX - rect.left;
-      offY = e.clientY - rect.top;
-      this.dragHandle.setPointerCapture(e.pointerId);
-    });
-
-    this.dragHandle.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      const x = Math.max(8, Math.min(window.innerWidth - this.win.offsetWidth - 8, e.clientX - offX));
-      const y = Math.max(8, Math.min(window.innerHeight - 60, e.clientY - offY));
-      this.win.style.left = `${x}px`;
-      this.win.style.top = `${y}px`;
-    });
-
-    this.dragHandle.addEventListener("pointerup", () => { dragging = false; });
-  }
-
   bindEvents() {
-    this.btnClose.addEventListener("click", () => this.close());
     this.select.addEventListener("change", () => this.refreshMeta());
 
-    // Abrir PDF Static Resource en la página exacta
     this.btnPdfRef.addEventListener("click", () => {
       const preset = PRESETS[this.select.value];
       if (!preset) return;
@@ -88,7 +58,6 @@ export class PresetsModalUI {
       if (e.target === this.pdfModal) this.closePdf();
     });
 
-    // Aplicar preset solo a pistas desbloqueadas
     this.btnApply.addEventListener("click", async () => {
       this.btnApply.blur();
       const preset = PRESETS[this.select.value];
@@ -127,7 +96,6 @@ export class PresetsModalUI {
     this.refBadge.textContent = p.ref || "Ver PDF";
     this.descEl.textContent = p.desc || "";
 
-    // Preview rápido de qué roles toca este preset
     this.previewEl.innerHTML = "";
     const unit = store.settings.volUnit;
     Object.entries(p.roles).forEach(([roleKey, cfg]) => {
@@ -140,10 +108,10 @@ export class PresetsModalUI {
     });
   }
 
-  isOpen() { return !this.win.classList.contains("hidden"); }
+  isOpen() { return this.windowManager.isWindowOpen("presets"); }
   isPdfOpen() { return !this.pdfModal.classList.contains("hidden"); }
-  open() { this.refreshMeta(); this.win.classList.remove("hidden"); }
-  close() { this.win.classList.add("hidden"); }
+  open() { this.windowManager.setWindowOpen("presets", true); }
+  close() { this.windowManager.setWindowOpen("presets", false); }
   closePdf() { this.pdfModal.classList.add("hidden"); this.pdfIframe.src = "about:blank"; }
-  toggle() { this.isOpen() ? this.close() : this.open(); }
+  toggle() { this.windowManager.toggleWindow("presets"); }
 }
