@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { store, HALF_H, clamp, xToPan, zToVol, zToSend } from "../store.js";
 import { abletonService } from "../services/abletonService.js";
+import { pickBandSlotForStrip, xToEqGain, eqYToFreq, GIBSON_EQ_STRIPS } from "../data/eqBands.js";
 
 export class Interaction3D {
   constructor(stage, { onUndo, onRedo, onEscape }) {
@@ -19,6 +20,9 @@ export class Interaction3D {
     this.dragModeY = false;
     this.dragMoved = false;
     this.dragBeforeSnapshot = null;
+
+    this.draggingEq = null;
+    this.eqPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 
     this.wheelBeforeSnapshot = null;
     this.wheelHistoryTimer = null;
@@ -39,16 +43,119 @@ export class Interaction3D {
     return hits.length > 0 ? hits[0] : null;
   }
 
+  raycastEq(e) {
+    this.updatePointer(e);
+    this.raycaster.setFromCamera(this.pointer, this.stage.camera);
+    const hits = this.raycaster.intersectObjects(this.stage.eqWindow.getPickableStrips(), false);
+    return hits.length > 0 ? hits[0] : null;
+  }
+
+  configureDragPlane(e, anchorPos, isYMode) {
+    this.dragModeY = isYMode;
+    if (isYMode) {
+      const camDir = new THREE.Vector3();
+      this.stage.camera.getWorldDirection(camDir);
+      camDir.y = 0;
+      if (camDir.lengthSq() < 1e-4) camDir.set(0, 0, -1);
+      else camDir.normalize();
+      this.dragPlane.setFromNormalAndCoplanarPoint(camDir, anchorPos);
+    } else {
+      this.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), anchorPos);
+    }
+
+    this.updatePointer(e);
+    this.raycaster.setFromCamera(this.pointer, this.stage.camera);
+    if (this.raycaster.ray.intersectPlane(this.dragPlane, this.dragHit)) {
+      this.dragStartWorld.copy(this.dragHit);
+    }
+  }
+
+  snapshotDragBases(targets) {
+    this.dragBaseStates = targets.map((tItem) => {
+      tItem.isDragging = true;
+      const orb = this.stage.orbs.get(tItem.id);
+      return {
+        item: tItem,
+        y: tItem.y,
+        startPos: orb ? orb.mesh.position.clone() : new THREE.Vector3(),
+      };
+    });
+  }
+
   bindEvents() {
     const dom = this.stage.renderer.domElement;
+    const viewport = this.stage.viewportEl;
 
-    dom.addEventListener("pointerdown", (e) => {
+    dom.addEventListener("contextmenu", (e) => {
+      if (store.viewMode === "eq") e.preventDefault();
+    });
+
+    // Capture en viewportEl: corre ANTES que OrbitControls cuando tocás una esfera/franja
+    viewport.addEventListener("pointerdown", async (e) => {
+      if (e.target !== dom) return;
+
+      if (store.viewMode === "eq") {
+        const hit = this.raycastEq(e);
+        if (!hit) return;
+
+        e.stopPropagation();
+
+        const stripIdx = hit.object.userData.eqStripIndex;
+        const item = store.getSelectedTracks()[0];
+        if (!item || item.locked || !item.eq?.hasDevice) return;
+        if (!item.eq.bound) {
+          const ok = await abletonService.ensureEqBound(item);
+          if (!ok) return;
+        }
+
+        const bandIdx = pickBandSlotForStrip(item.eq.bands, stripIdx);
+        const band = item.eq.bands[bandIdx];
+        const strip = GIBSON_EQ_STRIPS[stripIdx];
+
+        if (e.button === 2) {
+          e.preventDefault();
+          const nextOn = !band.on;
+          const patch = { on: nextOn };
+          if (nextOn && !band.on) {
+            patch.freqHz = strip.centerHz;
+            patch.type = strip.defaultType;
+          }
+          await abletonService.setEqBand(item, bandIdx, patch, { immediate: true, recordHistory: true });
+          this.stage.eqWindow.sync();
+          return;
+        }
+
+        if (e.button !== 0) return;
+
+        this.stage.controls.enabled = false;
+        this.draggingEq = {
+          item,
+          bandIdx,
+          stripIdx,
+          beforeSnap: store.captureSnapshot(),
+        };
+
+        const gainDb = xToEqGain(hit.point.x, !e.ctrlKey);
+        const patch = { gainDb };
+        if (!band.on) {
+          patch.on = true;
+          patch.freqHz = strip.centerHz;
+          patch.type = strip.defaultType;
+        }
+        await abletonService.setEqBand(item, bandIdx, patch, { immediate: false, recordHistory: false });
+        this.stage.eqWindow.sync();
+        return;
+      }
+
       if (e.button !== 0) return;
       const hit = this.raycast(e);
       if (!hit) return;
 
       const item = hit.object.userData.trackItem;
       if (!item || item.locked) return;
+
+      // Evita que OrbitControls agarre Shift+Drag como paneo de cámara
+      e.stopPropagation();
 
       if (e.ctrlKey) {
         e.preventDefault();
@@ -69,44 +176,52 @@ export class Interaction3D {
       if (targets.length === 0) return;
 
       this.draggingPrimary = item;
-      this.dragModeY = e.shiftKey;
       this.dragMoved = false;
       this.dragBeforeSnapshot = store.captureSnapshot();
       this.stage.controls.enabled = false;
 
-      if (this.dragModeY) {
-        const camDir = new THREE.Vector3();
-        this.stage.camera.getWorldDirection(camDir);
-        camDir.y = 0;
-        camDir.normalize();
-        this.dragPlane.setFromNormalAndCoplanarPoint(camDir, hit.object.position);
-      } else {
-        this.dragPlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), hit.object.position);
-      }
-
-      if (this.raycaster.ray.intersectPlane(this.dragPlane, this.dragHit)) {
-        this.dragStartWorld.copy(this.dragHit);
-      }
-
-      this.dragBaseStates = targets.map((tItem) => {
-        tItem.isDragging = true;
-        const orb = this.stage.orbs.get(tItem.id);
-        return {
-          item: tItem,
-          y: tItem.y,
-          startPos: orb ? orb.mesh.position.clone() : new THREE.Vector3(),
-        };
-      });
-    });
+      this.configureDragPlane(e, hit.object.position, e.shiftKey);
+      this.snapshotDragBases(targets);
+      dom.style.cursor = this.dragModeY ? "ns-resize" : "grabbing";
+    }, { capture: true });
 
     window.addEventListener("pointermove", (e) => {
-      if (!this.draggingPrimary) {
-        const hit = this.raycast(e);
-        dom.style.cursor = hit ? "grab" : "default";
+      if (this.draggingEq) {
+        dom.style.cursor = e.shiftKey ? "move" : "ew-resize";
+        this.updatePointer(e);
+        this.raycaster.setFromCamera(this.pointer, this.stage.camera);
+        if (this.raycaster.ray.intersectPlane(this.eqPlane, this.dragHit)) {
+          const patch = { gainDb: xToEqGain(this.dragHit.x, !e.ctrlKey) };
+          if (e.shiftKey) patch.freqHz = eqYToFreq(this.dragHit.y);
+          abletonService.setEqBand(this.draggingEq.item, this.draggingEq.bandIdx, patch);
+          this.stage.eqWindow.sync();
+        }
         return;
       }
 
-      dom.style.cursor = "grabbing";
+      if (store.viewMode === "eq") {
+        const hit = this.raycastEq(e);
+        this.stage.eqWindow.setHoveredStrip(hit ? hit.object.userData.eqStripIndex : -1);
+        dom.style.cursor = hit ? "crosshair" : "default";
+        return;
+      }
+
+      if (!this.draggingPrimary) {
+        const hit = this.raycast(e);
+        dom.style.cursor = hit ? (e.shiftKey ? "ns-resize" : "grab") : "default";
+        return;
+      }
+
+      // Si apretás o soltás Shift a mitad del arrastre, reancla suavemente sin saltos
+      if (e.shiftKey !== this.dragModeY) {
+        const primaryOrb = this.stage.orbs.get(this.draggingPrimary.id);
+        if (primaryOrb) {
+          this.configureDragPlane(e, primaryOrb.mesh.position, e.shiftKey);
+          this.snapshotDragBases(this.dragBaseStates.map((s) => s.item));
+        }
+      }
+
+      dom.style.cursor = this.dragModeY ? "ns-resize" : "grabbing";
       this.updatePointer(e);
       this.raycaster.setFromCamera(this.pointer, this.stage.camera);
 
@@ -140,6 +255,17 @@ export class Interaction3D {
     });
 
     window.addEventListener("pointerup", () => {
+      if (this.draggingEq) {
+        const { item, bandIdx, beforeSnap } = this.draggingEq;
+        const b = item.eq.bands[bandIdx];
+        abletonService.setEqBand(item, bandIdx, { gainDb: b.gainDb, freqHz: b.freqHz }, { immediate: true });
+        if (beforeSnap) store.pushHistory(beforeSnap);
+        this.draggingEq = null;
+        this.stage.controls.enabled = true;
+        dom.style.cursor = "default";
+        return;
+      }
+
       if (!this.draggingPrimary) return;
       for (const st of this.dragBaseStates) {
         st.item._ableton.setPanLive(st.item.pan, true);
@@ -157,8 +283,34 @@ export class Interaction3D {
       dom.style.cursor = "default";
     });
 
-    // Rueda sobre una esfera: modifica el eje secundario (Reverb en modo Gibson, Volumen en modo Espacial)
     dom.addEventListener("wheel", (e) => {
+      if (store.viewMode === "eq") {
+        const hit = this.raycastEq(e);
+        if (!hit) return;
+        const item = store.getSelectedTracks()[0];
+        if (!item || item.locked || !item.eq?.bound) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (!this.wheelBeforeSnapshot) this.wheelBeforeSnapshot = store.captureSnapshot();
+        clearTimeout(this.wheelHistoryTimer);
+        this.wheelHistoryTimer = setTimeout(() => {
+          if (this.wheelBeforeSnapshot) {
+            store.pushHistory(this.wheelBeforeSnapshot);
+            this.wheelBeforeSnapshot = null;
+          }
+        }, 400);
+
+        const stripIdx = hit.object.userData.eqStripIndex;
+        const bandIdx = pickBandSlotForStrip(item.eq.bands, stripIdx);
+        const band = item.eq.bands[bandIdx];
+        const deltaQ = e.deltaY < 0 ? 0.04 : -0.04;
+        abletonService.setEqBand(item, bandIdx, { q: clamp(band.q + deltaQ, 0, 1) });
+        this.stage.eqWindow.sync();
+        return;
+      }
+
       const hit = this.raycast(e);
       if (!hit) return;
       e.preventDefault();
@@ -198,7 +350,6 @@ export class Interaction3D {
       store.emit("track-changed", item);
     }, { passive: false, capture: true });
 
-    // Atajos globales de teclado
     window.addEventListener("keydown", async (e) => {
       const active = document.activeElement;
       const isTyping =
@@ -207,19 +358,10 @@ export class Interaction3D {
           active.tagName === "TEXTAREA");
       if (isTyping) return;
 
-      // Ctrl+Z / Ctrl+Y (Undo / Redo)
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         const k = e.key.toLowerCase();
-        if (k === "z" && !e.shiftKey) {
-          e.preventDefault();
-          this.onUndo?.();
-          return;
-        }
-        if (k === "y" || (k === "z" && e.shiftKey)) {
-          e.preventDefault();
-          this.onRedo?.();
-          return;
-        }
+        if (k === "z" && !e.shiftKey) { e.preventDefault(); this.onUndo?.(); return; }
+        if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); this.onRedo?.(); return; }
       }
 
       if (e.code === "Space") {
@@ -235,8 +377,13 @@ export class Interaction3D {
 
       if (active?.tagName === "SELECT") return;
       const key = e.key.toLowerCase();
-      const sel = store.getSelectedTracks();
 
+      if (key === "e") {
+        store.setViewMode(store.viewMode === "mix" ? "eq" : "mix");
+        return;
+      }
+
+      const sel = store.getSelectedTracks();
       if (key === "m" && sel.length > 0) {
         store.pushHistory(store.captureSnapshot());
         const nextMute = !sel.every((i) => i.mute);

@@ -80,6 +80,8 @@ class Store extends EventTarget {
       predelayParam: null,
     };
 
+    this.viewMode = "mix"; // "mix" | "eq"
+
     // Telemetría Master & Análisis Psicoacústico (US-08)
     this.masterStats = {
       connected: false,
@@ -129,6 +131,12 @@ class Store extends EventTarget {
     this.selectedIds = new Set(ids.map(String));
     this.emit("selection");
   }
+  setViewMode(mode) {
+    const next = mode === "eq" ? "eq" : "mix";
+    if (this.viewMode === next) return;
+    this.viewMode = next;
+    this.emit("view-mode", next);
+  }
 
   toggleInSelection(id) {
     const sid = String(id);
@@ -155,8 +163,18 @@ class Store extends EventTarget {
         shape: t.shape,
         sizeScale: t.sizeScale ?? 1.0,
         hidden: t.hidden,
-        locked: t.locked,
+         locked: t.locked,
         vGroupId: t.vGroupId,
+        eqBands: t.eq?.bound
+          ? t.eq.bands.map((b) => ({
+              bandNum: b.bandNum,
+              on: b.on,
+              type: b.type,
+              freqHz: b.freqHz,
+              gainDb: b.gainDb,
+              q: b.q,
+            }))
+          : null,
       })),
     };
   }
@@ -220,7 +238,7 @@ class Store extends EventTarget {
   buildExportPayload() {
     return {
       app: "Owls3DMixer",
-      version: 3.6,
+      version: "0.0.5",
       projectTitle: "Mix by OwlsMixer3D",
       exportedAt: new Date().toISOString(),
       settings: this.settings,

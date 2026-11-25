@@ -64,8 +64,15 @@
       </div>
     </div>
 
+    <div id="eq-banner" class="eq-banner hidden"></div>
+
     <!-- ZONA 3 (Dock Inferior Central): Controles exclusivos del Render 3D -->
     <div class="render-dock" aria-label="Controles del Render 3D">
+      <div class="segmented" id="view-mode-switch" title="Alternar entre Mix 3D y EQ Window (Tecla E)">
+        <button data-view="mix" class="active">Mix 3D</button>
+        <button data-view="eq">EQ Window</button>
+      </div>
+      <span class="pill-sep"></span>
       <span class="toolbar-label">Cámara</span>
       <div class="segmented">
         <button data-cam="iso">3D</button>
@@ -226,6 +233,11 @@
             <button id="btn-toggle-lock" class="mini-btn" disabled>🔓 Libre</button>
             <span class="help-icon" data-help="Bloquear impide mover la esfera por error en el 3D y protege la pista al aplicar Presets.">?</span>
           </div>
+          <div class="row" style="margin-top:6px;">
+            <button id="btn-quick-eq" class="mini-btn primary-soft" disabled>⚡ Quick EQ Gibson</button>
+            <span class="help-icon" data-help="Aplica al EQ Eight de Ableton la curva base recomendada por David Gibson (Chart 5/6) para el rol de esta pista. Compatible con Ctrl+Z.">?</span>
+            <button id="btn-open-eq-win" class="mini-btn" disabled>🎛️ EQ Window</button>
+          </div>
           <div id="eq-tip-box" class="eq-tip hidden"></div>
         </div>
 
@@ -301,7 +313,7 @@
         </div>
       </div>
       <div class="pdf-hint-bar">
-        Static Resource: <code>owls-mixer/assets/art_of_mixing.pdf</code> — si no carga abajo, copiá tu PDF en esa ruta con ese nombre.
+       Static Resource: <code>owlsmixer/assets/art_of_mixing.pdf</code> — si no carga abajo, copiá tu PDF en esa ruta con ese nombre.
       </div>
       <iframe id="pdf-iframe" class="pdf-frame" src="about:blank"></iframe>
     </div>

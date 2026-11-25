@@ -3,6 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { SKINS } from "../data/skins.js";
 import { store, HALF_W, HALF_H, HALF_D } from "../store.js";
 import { TrackOrb, makeTextSprite } from "./TrackOrb.js";
+import { EqWindow3D } from "./EqWindow3D.js";
 
 const CAM_VIEWS = {
   iso:   { pos: [0, 4.4, 13.8], target: [0, -0.1, 0] },
@@ -45,6 +46,9 @@ export class Stage3D {
     this.buildStage(skin.scene);
     this.buildRetro90sSkyRoom();
     this.buildClusterVisuals(skin.scene);
+
+    this.savedMixCam = null;
+    this.eqWindow = new EqWindow3D(this.scene);
 
     window.addEventListener("resize", () => this.resize());
     this.startLoop();
@@ -278,7 +282,8 @@ export class Stage3D {
       new THREE.Vector3(0, -HALF_H, -HALF_D),
     ]);
     this.stageRefs.centerLineMat = new THREE.LineBasicMaterial({ color: s.centerLine, opacity: 0.5, transparent: true });
-    this.scene.add(new THREE.Line(centerGeo, this.stageRefs.centerLineMat));
+    this.stageRefs.centerLine = new THREE.Line(centerGeo, this.stageRefs.centerLineMat);
+    this.scene.add(this.stageRefs.centerLine);
 
     this.stageRefs.spkCabMat = new THREE.MeshStandardMaterial({ color: s.spkCab, roughness: 0.55, metalness: 0.25 });
     this.stageRefs.spkConeMat = new THREE.MeshStandardMaterial({ color: s.spkCone, roughness: 0.4 });
@@ -360,11 +365,39 @@ export class Stage3D {
   }
 
   applyStageSettings() {
-    this.stageRefs.floorLevels.visible = store.settings.showVolLevels;
-    this.stageRefs.freqBands.visible = store.settings.showFreqBands;
+    const isMix = store.viewMode === "mix";
+    this.stageRefs.floorLevels.visible = isMix && store.settings.showVolLevels;
+    this.stageRefs.freqBands.visible = isMix && store.settings.showFreqBands;
+    if (this.stageRefs.centerLine) this.stageRefs.centerLine.visible = isMix;
     this.updateAllOrbs();
   }
 
+  applyViewMode(mode) {
+    const isEq = mode === "eq";
+    this.eqWindow.group.visible = isEq;
+
+    if (isEq) {
+      this.savedMixCam = {
+        pos: this.camera.position.clone(),
+        target: this.controls.target.clone(),
+      };
+      this.camera.position.set(0, 0, 12.6);
+      this.controls.target.set(0, 0, 0);
+      this.controls.enableRotate = false;
+      this.controls.update();
+    } else {
+      this.controls.enableRotate = true;
+      if (this.savedMixCam) {
+        this.camera.position.copy(this.savedMixCam.pos);
+        this.controls.target.copy(this.savedMixCam.target);
+        this.controls.update();
+      }
+    }
+
+    this.applyStageSettings();
+    this.updateCollisions(store.mixAnalysis?.collisions || []);
+    this.eqWindow.sync();
+  }
   rebuildOrbs() {
     this.orbs.forEach((orb) => {
       this.scene.remove(orb.group);
@@ -402,9 +435,16 @@ export class Stage3D {
   updateAllOrbs() {
     this.orbs.forEach((orb) => orb.sync(this.camera));
     this.updateCluster();
+    if (store.viewMode === "eq") this.eqWindow.sync();
   }
 
-  updateCluster() {
+   updateCluster() {
+    if (store.viewMode !== "mix") {
+      this.clusterLines.visible = false;
+      this.centroidMarker.visible = false;
+      return;
+    }
+
     const selOrbs = store
       .getSelectedTracks()
       .map((t) => this.orbs.get(t.id))
@@ -435,6 +475,7 @@ export class Stage3D {
     this.centroidMarker.visible = true;
   }
 
+
   updateCollisions(collisions = []) {
     while (this.collisionMarkers.children.length > 0) {
       const m = this.collisionMarkers.children[0];
@@ -443,7 +484,7 @@ export class Stage3D {
       this.collisionMarkers.remove(m);
     }
 
-    if (!store.settings.showCollisions || collisions.length === 0) {
+    if (store.viewMode !== "mix" || !store.settings.showCollisions || collisions.length === 0) {
       this.collisionLines.visible = false;
       this.collisionMarkers.visible = false;
       return;

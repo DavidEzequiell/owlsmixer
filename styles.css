@@ -708,3 +708,160 @@ body[data-skin="gibson_90s"] .swatch-btn.active { border: 2px solid #000080; box
 body[data-skin="gibson_90s"] .collision-item { background: #fff3cd; color: #7c2d12; border-color: #b45309; }
 body[data-skin="gibson_90s"] .collision-item.is-mud { background: #fee2e2; color: #7f1d1d; border-color: #b91c1c; }
 body[data-skin="gibson_90s"] .master-lufs-box { background: #ffffff; color: #000; border-radius: 0; }
+
+.segmented button.active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.eq-banner {
+  position: absolute;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-glass);
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  padding: 5px 12px;
+  font-size: 11.5px;
+  color: var(--text-main);
+  z-index: 14;
+  backdrop-filter: blur(10px);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.eq-banner.warn { border-color: var(--warn); color: #fde68a; }
+
+button.primary-soft {
+  background: color-mix(in srgb, var(--accent) 22%, var(--bg-control));
+  border-color: var(--accent);
+  color: #dbeafe;
+  font-weight: 600;
+}
+body[data-skin="gibson_90s"] button.primary-soft {
+  background: #c596e8;
+  color: #000;
+}
+/* =========================================================================
+   SKIN RETRO: "WINAMP 2.91 CLASSIC (LCD / METALLIC)"
+   ========================================================================= */
+body[data-skin="winamp_classic"] {
+  --font-ui: "Segoe UI", Tahoma, Verdana, sans-serif;
+}
+
+body[data-skin="winamp_classic"] #sidebar,
+body[data-skin="winamp_classic"] .toolbar-pill,
+body[data-skin="winamp_classic"] .render-dock,
+body[data-skin="winamp_classic"] .floating-window,
+body[data-skin="winamp_classic"] .modal-card,
+body[data-skin="winamp_classic"] .loading-box,
+body[data-skin="winamp_classic"] .hud-help {
+  background: linear-gradient(180deg, #323848 0%, #232734 100%);
+  border-radius: 2px;
+  border-top: 1px solid #68738f;
+  border-left: 1px solid #68738f;
+  border-right: 1px solid #0b0d12;
+  border-bottom: 1px solid #0b0d12;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7);
+  backdrop-filter: none;
+}
+
+body[data-skin="winamp_classic"] .panel-title,
+body[data-skin="winamp_classic"] .floating-header,
+body[data-skin="winamp_classic"] .modal-header {
+  background: linear-gradient(90deg, #1b202b 0%, #3a4256 50%, #1b202b 100%);
+  color: #f5c542;
+  padding: 4px 7px;
+  border-top: 1px solid #59637d;
+  border-bottom: 1px solid #0d1016;
+  letter-spacing: 0.1em;
+}
+
+body[data-skin="winamp_classic"] button,
+body[data-skin="winamp_classic"] .mini-link-btn {
+  background: linear-gradient(180deg, #434b60 0%, #2c3140 100%);
+  color: #e2ecf7;
+  border-radius: 2px;
+  border-top: 1px solid #75809e;
+  border-left: 1px solid #75809e;
+  border-right: 1px solid #10131a;
+  border-bottom: 1px solid #10131a;
+}
+
+body[data-skin="winamp_classic"] button:hover:not(:disabled) {
+  border-color: #00ff41;
+  color: #00ff41;
+}
+
+body[data-skin="winamp_classic"] button.primary,
+body[data-skin="winamp_classic"] button.primary-soft,
+body[data-skin="winamp_classic"] .segmented button.active {
+  background: #06180c;
+  border: 1px solid #00ff41;
+  color: #00ff41;
+  text-shadow: 0 0 6px rgba(0, 255, 65, 0.55);
+}
+
+body[data-skin="winamp_classic"] button.btn-toggle.active,
+body[data-skin="winamp_classic"] button.active-toggle {
+  background: #072210;
+  border-color: #00ff41;
+  color: #00ff41;
+}
+
+/* Pantallas LCD negras con fósforo verde */
+body[data-skin="winamp_classic"] select,
+body[data-skin="winamp_classic"] .master-lufs-box,
+body[data-skin="winamp_classic"] .pill-info,
+body[data-skin="winamp_classic"] .eq-tip,
+body[data-skin="winamp_classic"] .eq-banner,
+body[data-skin="winamp_classic"] .status-cluster,
+body[data-skin="winamp_classic"] .rename-input {
+  background: #040906;
+  color: #00ff41;
+  border: 1px solid #1d4a2b;
+  border-radius: 2px;
+  font-family: Consolas, "Courier New", monospace;
+}
+
+body[data-skin="winamp_classic"] .slider-label span:last-child,
+body[data-skin="winamp_classic"] #track-count {
+  font-family: Consolas, "Courier New", monospace;
+  color: #00ff41;
+}
+
+body[data-skin="winamp_classic"] #track-list {
+  background: #050a07;
+  margin: 0 8px 8px;
+  border: 1px inset #121620;
+}
+
+body[data-skin="winamp_classic"] .track-item {
+  background: #08120c;
+  color: #00e63b;
+  border-radius: 1px;
+  border: 1px solid #0e2416;
+  font-family: Consolas, "Courier New", monospace;
+}
+
+body[data-skin="winamp_classic"] .track-item:hover {
+  background: #0d2015;
+}
+
+body[data-skin="winamp_classic"] .track-item.selected {
+  background: #00471c;
+  color: #ffffff;
+  border-color: #00ff41;
+}
+
+body[data-skin="winamp_classic"] .group-header {
+  background: #1a1f2b;
+  color: #f5c542;
+  border: 1px solid #3f475e;
+  border-radius: 2px;
+}
+
+body[data-skin="winamp_classic"] input[type="range"] {
+  accent-color: #f5b700;
+}

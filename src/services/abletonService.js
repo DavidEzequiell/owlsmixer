@@ -1,7 +1,17 @@
 import { Ableton } from "../../../ableton.js";
 import { ROLES, autoDetectRole } from "../data/roles.js";
-import { store, clamp } from "../store.js";
-import { bindReturnAReverb, paramToNorm, normToParam } from "../adapters/deviceAdapters.js";
+import { store, clamp, HALF_H } from "../store.js";
+import { computeEqYShift } from "../data/eqBands.js";
+import {
+  bindReturnAReverb,
+  findTrackEqDevice,
+  bindEqDevice,
+  createDefaultEqBands,
+  paramToNorm,
+  normToParam,
+  eqNormToHz,
+  hzToEqNorm,
+} from "../adapters/deviceAdapters.js";
 import { MasterLoudnessTracker } from "../engine/psychoacoustics.js";
 
 function normalizeAbletonColor(c) {
@@ -66,6 +76,12 @@ class AbletonService {
   clearListeners() {
     this.unsubs.forEach((u) => { try { u(); } catch {} });
     this.unsubs = [];
+    for (const t of store.tracks) {
+      if (Array.isArray(t._ableton?.eqUnsubs)) {
+        t._ableton.eqUnsubs.forEach((u) => { try { u(); } catch {} });
+        t._ableton.eqUnsubs = [];
+      }
+    }
   }
 
   async scanAll() {
@@ -111,6 +127,7 @@ class AbletonService {
       const sendA = sendAParam ? await sendAParam.get("value") : 0;
       const mute = Boolean(await t.get("mute"));
       const solo = Boolean(await t.get("solo"));
+      const eqMeta = await findTrackEqDevice(t);
 
       const prev = prevById.get(id);
       const role = prev ? prev.role : autoDetectRole(name, isGroup);
@@ -139,11 +156,24 @@ class AbletonService {
         meter: 0,
         smoothMeter: 0,
         isDragging: false,
+        eq: {
+          hasDevice: Boolean(eqMeta),
+          bound: false,
+          loading: false,
+          deviceName: eqMeta?.deviceName || null,
+          adapterName: eqMeta?.adapter?.label || null,
+          bands: createDefaultEqBands(8),
+        },
         _ableton: {
           track: t,
           volParam,
           panParam,
           sendAParam,
+          eqDevice: eqMeta?.device || null,
+          eqAdapter: eqMeta?.adapter || null,
+          eqBinding: null,
+          eqBandSetters: [],
+          eqUnsubs: [],
           setPanLive: createThrottledSetter((v) => panParam.set("value", clamp(v, -1, 1))),
           setVolLive: createThrottledSetter((v) => volParam.set("value", clamp(v, 0, 1))),
           setSendALive: createThrottledSetter((v) => sendAParam && sendAParam.set("value", clamp(v, 0, 1))),
@@ -203,8 +233,193 @@ class AbletonService {
     await this.scanReturnAReverb();
     await this.bindMasterMeter();
     store.emit("tracks-loaded");
+
+    // Si ya había pistas seleccionadas tras un rescan, bindea su EQ on-demand
+    for (const sel of store.getSelectedTracks()) {
+      if (sel.eq.hasDevice) this.ensureEqBound(sel);
+    }
   }
 
+  // =========================================================================
+  // EQ EIGHT / EQ ADAPTER (Carga y suscripción On-Demand por pista)
+  // =========================================================================
+  async ensureEqBound(item) {
+    if (!item || !item._ableton?.track) return false;
+    if (item.eq.bound) return true;
+    if (item.eq.loading) return false;
+
+    item.eq.loading = true;
+    try {
+      // Si el usuario agregó el EQ Eight después de escanear, lo buscamos una vez
+      if (!item._ableton.eqDevice) {
+        const eqMeta = await findTrackEqDevice(item._ableton.track);
+        if (!eqMeta) {
+          item.eq.hasDevice = false;
+          return false;
+        }
+        item._ableton.eqDevice = eqMeta.device;
+        item._ableton.eqAdapter = eqMeta.adapter;
+        item.eq.hasDevice = true;
+        item.eq.deviceName = eqMeta.deviceName;
+        item.eq.adapterName = eqMeta.adapter.label;
+      }
+
+      const binding = await bindEqDevice(item._ableton.eqDevice, item._ableton.eqAdapter);
+      if (!binding) return false;
+
+      item._ableton.eqBinding = binding;
+      item._ableton.eqBandSetters = [];
+
+      const safeSet = async (param, val) => {
+        try { await param.set("value", val); } catch (e) { console.warn("EQ set error:", e); }
+      };
+
+      for (let i = 0; i < binding.bands.length; i++) {
+        const bp = binding.bands[i];
+        const bandState = item.eq.bands[i];
+
+        const [rawOn, rawType, rawFreq, rawGain, rawQ] = await Promise.all([
+          bp.onParam ? bp.onParam.get("value") : 0,
+          bp.typeParam ? bp.typeParam.get("value") : bandState.type,
+          bp.freqParam ? bp.freqParam.get("value") : 0.5,
+          bp.gainParam ? bp.gainParam.get("value") : 0,
+          bp.qParam ? bp.qParam.get("value") : 0.38,
+        ]);
+
+        bandState.on = Boolean(rawOn >= 0.5);
+        bandState.type = Math.round(rawType ?? bandState.type);
+        bandState.freqHz = bp.freqParam
+          ? binding.adapter.normToFreq(paramToNorm(bp.freqParam, rawFreq))
+          : bandState.freqHz;
+        bandState.gainDb = bp.gainParam ? Number(rawGain) || 0 : 0;
+        bandState.q = bp.qParam ? paramToNorm(bp.qParam, rawQ) : 0.38;
+
+        item._ableton.eqBandSetters.push({
+          setFreq: bp.freqParam
+            ? createThrottledSetter((hz) => {
+                const n = binding.adapter.freqToNorm(hz);
+                safeSet(bp.freqParam, normToParam(bp.freqParam, n));
+              })
+            : null,
+          setGain: bp.gainParam
+            ? createThrottledSetter((db) => {
+                const min = bp.gainParam._bounds?.min ?? -15;
+                const max = bp.gainParam._bounds?.max ?? 15;
+                safeSet(bp.gainParam, clamp(db, min, max));
+              })
+            : null,
+          setQ: bp.qParam
+            ? createThrottledSetter((q01) => safeSet(bp.qParam, normToParam(bp.qParam, q01)))
+            : null,
+        });
+
+        // Listeners bidireccionales desde Live -> UI
+        const attach = async (param, onVal) => {
+          if (!param) return;
+          try {
+            const u = await param.addListener("value", (v) => {
+              if (performance.now() < bandState._localWriteUntil) return;
+              onVal(v);
+              this.syncEqToTrackY(item);
+              store.emit("eq-changed", item);
+            });
+            item._ableton.eqUnsubs.push(u);
+          } catch {}
+        };
+
+        await attach(bp.onParam, (v) => { bandState.on = Boolean(v >= 0.5); });
+        await attach(bp.typeParam, (v) => { bandState.type = Math.round(v); });
+        await attach(bp.freqParam, (v) => {
+          bandState.freqHz = binding.adapter.normToFreq(paramToNorm(bp.freqParam, v));
+        });
+        await attach(bp.gainParam, (v) => { bandState.gainDb = Number(v) || 0; });
+        await attach(bp.qParam, (v) => { bandState.q = paramToNorm(bp.qParam, v); });
+      }
+
+      item.eq.bound = true;
+      this.syncEqToTrackY(item);
+      store.emit("eq-changed", item);
+      return true;
+    } catch (err) {
+      console.warn("No se pudo bindear EQ en", item.name, err);
+      return false;
+    } finally {
+      item.eq.loading = false;
+      
+    }
+    
+  }
+
+  async setEqBand(item, bandIndex, patch, { immediate = false, recordHistory = false } = {}) {
+    if (!item || item.locked) return;
+    if (!item.eq.bound) {
+      const ok = await this.ensureEqBound(item);
+      if (!ok) return;
+    }
+
+    const bp = item._ableton.eqBinding?.bands?.[bandIndex];
+    const setters = item._ableton.eqBandSetters?.[bandIndex];
+    const band = item.eq.bands?.[bandIndex];
+    if (!bp || !band) return;
+
+    if (recordHistory) store.pushHistory(store.captureSnapshot());
+
+    band._localWriteUntil = performance.now() + 260;
+
+    if (typeof patch.on === "boolean") {
+      band.on = patch.on;
+      if (bp.onParam) await bp.onParam.set("value", band.on ? 1 : 0).catch(() => {});
+    }
+    if (typeof patch.type === "number") {
+      band.type = Math.round(clamp(patch.type, 0, 7));
+      if (bp.typeParam) await bp.typeParam.set("value", band.type).catch(() => {});
+    }
+    if (typeof patch.freqHz === "number") {
+      band.freqHz = clamp(patch.freqHz, 10, 22000);
+      setters?.setFreq?.(band.freqHz, immediate);
+    }
+    if (typeof patch.gainDb === "number") {
+      const min = bp.gainParam?._bounds?.min ?? -15;
+      const max = bp.gainParam?._bounds?.max ?? 15;
+      band.gainDb = clamp(patch.gainDb, min, max);
+      setters?.setGain?.(band.gainDb, immediate);
+    }
+    if (typeof patch.q === "number") {
+      band.q = clamp(patch.q, 0, 1);
+      setters?.setQ?.(band.q, immediate);
+    }
+    this.syncEqToTrackY(item)
+    store.emit("eq-changed", item);
+  }
+
+  async applyEqPreset(item, bandConfigs, recordHistory = true) {
+    if (!item || item.locked || !Array.isArray(bandConfigs)) return false;
+    const ok = await this.ensureEqBound(item);
+    if (!ok) return false;
+
+    if (recordHistory) store.pushHistory(store.captureSnapshot());
+
+    for (const cfg of bandConfigs) {
+      const idx = (cfg.bandNum ?? 1) - 1;
+      if (idx < 0 || idx >= 8) continue;
+      await this.setEqBand(item, idx, cfg, { immediate: true, recordHistory: false });
+    }
+    return true;
+  }
+  syncEqToTrackY(item) {
+    if (!item?.eq?.bound) return;
+    const prevShift = item._lastEqYShift || 0;
+    const nextShift = computeEqYShift(item.eq.bands);
+    if (Math.abs(nextShift - prevShift) > 0.005) {
+      item.y = clamp(item.y - prevShift + nextShift, -HALF_H + 0.3, HALF_H - 0.3);
+      item._lastEqYShift = nextShift;
+      store.emit("track-changed", item);
+    }
+  }
+
+  // =========================================================================
+  // MASTER METER & RETURN A REVERB
+  // =========================================================================
   async bindMasterMeter() {
     try {
       const master = await this.ableton.song.get("master_track");
@@ -405,6 +620,11 @@ class AbletonService {
       await item._ableton.track.set("solo", item.solo);
       if (nameChanged) { try { await item._ableton.track.set("name", item.name); } catch {} }
       if (colorChanged) { try { await item._ableton.track.set("color", parseInt(item.colorHex.slice(1), 16)); } catch {} }
+
+      if (Array.isArray(s.eqBands) && item.eq?.hasDevice) {
+        item._lastEqYShift = computeEqYShift(s.eqBands);
+        await this.applyEqPreset(item, s.eqBands, false);
+      }
     }
 
     store.emit("snapshot-applied");

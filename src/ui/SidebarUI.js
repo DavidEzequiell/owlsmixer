@@ -1,6 +1,7 @@
 import { ROLES } from "../data/roles.js";
 import { store, clamp, formatVolume, formatPan, yToFreq, formatFreq, abletonVolToDb, getApparentVolumeLevel } from "../store.js";
 import { abletonService } from "../services/abletonService.js";
+import { getGibsonQuickEqForRole } from "../data/eqBands.js";
 
 export class SidebarUI {
   constructor({ onTrackVisualChanged, onOrbLabelChanged }) {
@@ -63,6 +64,9 @@ export class SidebarUI {
     this.multiBase = [];
     this.multiBaseAvg = { pan: 0, vol: 0, sendA: 0 };
     this.draggedTrackId = null;
+
+    this.btnQuickEq = document.getElementById("btn-quick-eq");
+    this.btnOpenEqWin = document.getElementById("btn-open-eq-win");
 
     this.initCollapsibleSections();
     this.initReverbUI();
@@ -267,6 +271,20 @@ export class SidebarUI {
       this.toggleLock(sel[0]);
     });
 
+    this.btnQuickEq.addEventListener("click", async () => {
+      this.btnQuickEq.blur();
+      const sel = store.getSelectedTracks();
+      if (sel.length !== 1 || sel[0].locked || !sel[0].eq?.hasDevice) return;
+      const presetBands = getGibsonQuickEqForRole(sel[0].role);
+      await abletonService.applyEqPreset(sel[0], presetBands, true);
+      this.updateInspector();
+    });
+
+    this.btnOpenEqWin.addEventListener("click", () => {
+      this.btnOpenEqWin.blur();
+      store.setViewMode(store.viewMode === "eq" ? "mix" : "eq");
+    });
+
     // Sliders de Conjunto
     const beginMulti = () => {
       const sel = store.getSelectedTracks().filter((t) => !t.locked);
@@ -379,44 +397,62 @@ export class SidebarUI {
     });
   }
 
-  updateInspector() {
+updateInspector() {
     const sel = store.getSelectedTracks();
     const unit = store.settings.volUnit;
 
     if (sel.length === 0) {
+      this.btnQuickEq.textContent = "⚡ Quick EQ Gibson";
       this.inspSingle.classList.remove("hidden");
       this.inspMulti.classList.add("hidden");
-      [this.slPan, this.slVol, this.slSend, this.slY, this.slSize, this.btnToggleShape, this.btnToggleLock].forEach((c) => (c.disabled = true));
+      [
+        this.slPan, this.slVol, this.slSend, this.slY, this.slSize,
+        this.btnToggleShape, this.btnToggleLock, this.btnQuickEq, this.btnOpenEqWin,
+      ].forEach((c) => (c.disabled = true));
       this.inspName.textContent = "Seleccioná una esfera";
       this.inspRoleBadge.textContent = "";
+      this.valPan.textContent = "C";
+      this.valVol.textContent = "--";
+      this.valSend.textContent = "0%";
+      this.valY.textContent = "--";
+      this.valSize.textContent = "1.00x";
       this.eqTipBox.classList.add("hidden");
       this.inpCustomColor.disabled = true;
-      this.colorSwatchesEl.querySelectorAll(".swatch-btn").forEach((b) => { b.disabled = true; b.classList.remove("active"); });
+      this.colorSwatchesEl.querySelectorAll(".swatch-btn").forEach((b) => {
+        b.disabled = true;
+        b.classList.remove("active");
+      });
       return;
     }
 
     if (sel.length === 1) {
       const item = sel[0];
       const roleCfg = ROLES[item.role] || ROLES.other;
+      const hasEq = Boolean(item.eq?.hasDevice);
 
       this.inspSingle.classList.remove("hidden");
       this.inspMulti.classList.add("hidden");
-      [this.slPan, this.slVol, this.slSend, this.slY, this.slSize].forEach((c) => (c.disabled = item.locked));
+      [this.slPan, this.slVol, this.slY, this.slSize].forEach((c) => (c.disabled = item.locked));
+      this.slSend.disabled = item.locked || !item._ableton.sendAParam;
       this.btnToggleShape.disabled = false;
       this.btnToggleLock.disabled = false;
+      this.btnQuickEq.disabled = item.locked || !hasEq;
+      this.btnQuickEq.textContent = hasEq ? "⚡ Quick EQ Gibson" : "⚡ Sin EQ Eight";
+      this.btnOpenEqWin.disabled = !hasEq;
 
       this.inspName.textContent = (item.locked ? "🔒 " : "") + (item.isGroup ? `📁 ${item.name}` : item.name);
       this.inspRoleBadge.textContent = roleCfg.label;
+
       const volLvl = getApparentVolumeLevel(abletonVolToDb(item.vol));
-      this.valVol.textContent = `${formatVolume(item.vol, unit)} · L${volLvl.lvl}`;
       this.slPan.value = item.pan;
       this.valPan.textContent = formatPan(item.pan);
       this.slVol.value = item.vol;
-      this.valVol.textContent = formatVolume(item.vol, unit);
+      this.valVol.textContent = `${formatVolume(item.vol, unit)} · L${volLvl.lvl}`;
       this.slSend.value = item.sendA;
       this.valSend.textContent = item._ableton.sendAParam ? `${Math.round(item.sendA * 100)}%` : "Sin Return A";
       this.slY.value = item.y;
-      this.valY.textContent = item.y < -1.5 ? "Low" : item.y > 1.5 ? "High" : "Mid";
+      const bandLabel = item.y < -1.5 ? "Low" : item.y > 1.5 ? "High" : "Mid";
+      this.valY.textContent = `${formatFreq(yToFreq(item.y))} · ${bandLabel}`;
 
       const sc = item.sizeScale ?? 1.0;
       this.slSize.value = sc;
@@ -432,6 +468,7 @@ export class SidebarUI {
       } else {
         this.eqTipBox.classList.add("hidden");
       }
+
       this.inpCustomColor.disabled = false;
       this.inpCustomColor.value = item.colorHex;
       this.colorSwatchesEl.querySelectorAll(".swatch-btn").forEach((b) => {

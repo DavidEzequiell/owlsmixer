@@ -162,10 +162,10 @@ export class TrackOrb {
     });
   }
 
-  sync(camera) {
+sync(camera) {
     const item = this.item;
     const { settings } = store;
-    const visible = !item.hidden && !(item.isGroup && !store.showBuses);
+    const visible = store.viewMode === "mix" && !item.hidden && !(item.isGroup && !store.showBuses);
     this.group.visible = visible;
     if (!visible) return;
 

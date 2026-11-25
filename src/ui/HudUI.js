@@ -27,6 +27,15 @@ export class HudUI {
     this.btnToggleShortcuts = document.getElementById("btn-toggle-shortcuts");
     this.hudHelp = document.getElementById("hud-help");
 
+    this.eqBanner = document.getElementById("eq-banner");
+    this.viewModeBtns = document.querySelectorAll("#view-mode-switch button[data-view]");
+    this.viewModeBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        btn.blur();
+        store.setViewMode(btn.dataset.view);
+      });
+    });
+
     Object.entries(SKINS).forEach(([key, sk]) => {
       const opt = document.createElement("option");
       opt.value = key;
@@ -103,6 +112,31 @@ export class HudUI {
 
     this.syncSettingsUI();
     this.syncHistoryUI();
+    this.syncViewModeUI();
+  }
+
+  syncViewModeUI() {
+    this.viewModeBtns.forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.view === store.viewMode);
+    });
+
+    if (store.viewMode !== "eq") {
+      this.eqBanner.classList.add("hidden");
+      return;
+    }
+
+    this.eqBanner.classList.remove("hidden");
+    const item = store.getSelectedTracks()[0];
+    if (!item) {
+      this.eqBanner.className = "eq-banner warn";
+      this.eqBanner.textContent = "🎛️ EQ Window — Seleccioná una pista de la lista para ver/editar su EQ Eight";
+    } else if (!item.eq?.hasDevice) {
+      this.eqBanner.className = "eq-banner warn";
+      this.eqBanner.textContent = `⚠️ "${item.name}" no tiene EQ Eight en Ableton (agregalo y tocá ↻ o reseleccioná)`;
+    } else {
+      this.eqBanner.className = "eq-banner";
+      this.eqBanner.textContent = `🎛️ EQ Window: ${item.name} — Arrastrá X: Cut/Boost · Shift+Drag: Hz · Rueda: Q · Clic Der: On/Off`;
+    }
   }
 
   setStatus(state, text) {
@@ -139,4 +173,5 @@ export class HudUI {
       `<b>Ctrl+Click (M):</b> Mute &nbsp;|&nbsp; <b>Alt+Click (S):</b> Solo &nbsp;|&nbsp; <b>U:</b> Quitar Solos<br/>` +
       `<b>Esc:</b> Limpiar selección &nbsp;|&nbsp; <b>Doble clic en lista:</b> Renombrar`;
   }
+  
 }

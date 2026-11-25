@@ -78,14 +78,19 @@ const hud = new HudUI({
 });
 
 const sidebar = new SidebarUI({
-  onTrackVisualChanged: (item) => (item ? stage.updateOrb(item) : stage.updateAllOrbs()),
+  onTrackVisualChanged: (item) => {
+    if (item) stage.updateOrb(item);
+    else stage.updateAllOrbs();
+    runMixAnalysis();
+  },
   onOrbLabelChanged: (item) => stage.rebuildOrbLabel(item),
-
 });
 
 const psychoPanel = new PsychoPanelUI();
 
 function runMixAnalysis() {
+  // En EQ Window las esferas están ocultas; no recalculamos para no borrar fantasmas de colisión
+  if (store.viewMode !== "mix") return;
   store.mixAnalysis = analyzeMixSpace(
     store.tracks,
     stage.orbs,
@@ -94,6 +99,14 @@ function runMixAnalysis() {
   );
   stage.updateCollisions(store.mixAnalysis.collisions);
   psychoPanel.updateAnalysis();
+}
+
+function bindCollidingRivalsEq(item) {
+  if (!item) return;
+  for (const c of store.mixAnalysis.collisions || []) {
+    const rival = c.a.id === item.id ? c.b : c.b.id === item.id ? c.a : null;
+    if (rival && !rival.eq?.bound) abletonService.ensureEqBound(rival);
+  }
 }
 
 new Interaction3D(stage, {
@@ -166,7 +179,7 @@ store.on("settings", (s) => {
   sidebar.updateInspector();
   presetsModal.refreshMeta();
   settingsModal.syncFromStore();
-  runMixAnalysis()
+  runMixAnalysis();
 });
 
 store.on("tracks-loaded", () => {
@@ -175,7 +188,8 @@ store.on("tracks-loaded", () => {
   sidebar.renderTrackList();
   sidebar.updateReverbUI();
   sidebar.updateInspector();
-  runMixAnalysis()
+  hud.syncViewModeUI();
+  runMixAnalysis();
   hud.setStatus("ok", `Live · ${store.tracks.length} pistas`);
 });
 
@@ -183,7 +197,7 @@ store.on("track-changed", (item) => {
   if (item) stage.updateOrb(item);
   else stage.updateAllOrbs();
   sidebar.updateInspector();
-  runMixAnalysis()
+  runMixAnalysis();
 });
 
 store.on("track-renamed", (item) => {
@@ -191,6 +205,7 @@ store.on("track-renamed", (item) => {
   sidebar.renderTrackList();
   sidebar.renderGroupsBar();
   sidebar.updateInspector();
+  hud.syncViewModeUI();
 });
 
 store.on("track-color-changed", (item) => {
@@ -198,18 +213,46 @@ store.on("track-color-changed", (item) => {
   sidebar.renderTrackList();
   sidebar.renderGroupsBar();
   sidebar.updateInspector();
+  if (store.viewMode === "eq") stage.eqWindow.sync();
 });
 
 store.on("mute-solo", () => {
   stage.updateAllOrbs();
   sidebar.syncMuteSoloBadges();
-  runMixAnalysis()
+  runMixAnalysis();
 });
 
 store.on("selection", () => {
   stage.updateAllOrbs();
   sidebar.syncSelectionHighlights();
   sidebar.updateInspector();
+  hud.syncViewModeUI();
+
+  const sel = store.getSelectedTracks();
+  for (const t of sel) {
+    if (!t.eq?.bound) abletonService.ensureEqBound(t);
+  }
+  if (store.viewMode === "eq") {
+    bindCollidingRivalsEq(sel[0]);
+    stage.eqWindow.sync();
+  }
+});
+
+store.on("view-mode", (mode) => {
+  stage.applyViewMode(mode);
+  hud.syncViewModeUI();
+  if (mode === "eq") {
+    const item = store.getSelectedTracks()[0];
+    if (item && !item.eq?.bound) abletonService.ensureEqBound(item);
+    bindCollidingRivalsEq(item);
+  } else {
+    runMixAnalysis();
+  }
+});
+
+store.on("eq-changed", () => {
+  stage.eqWindow.sync();
+  hud.syncViewModeUI();
 });
 
 store.on("groups", () => {
@@ -220,22 +263,25 @@ store.on("groups", () => {
 store.on("reverb-changed", () => {
   sidebar.updateReverbUI();
   stage.updateAllOrbs();
-  runMixAnalysis()
+  runMixAnalysis();
 });
 
 store.on("snapshot-applied", () => {
   store.tracks.forEach((t) => {
     stage.rebuildOrbLabel(t);
     stage.updateOrbColor(t);
-    runMixAnalysis()
   });
   stage.updateAllOrbs();
+  runMixAnalysis();
   sidebar.renderGroupsBar();
   sidebar.renderTrackList();
   sidebar.syncMuteSoloBadges();
   sidebar.updateInspector();
+  hud.syncViewModeUI();
 });
+
 store.on("master-meter", () => psychoPanel.updateMasterMeter());
+
 async function rescanAll() {
   hud.setStatus("warn", "Escaneando...");
   await withLoading("Escaneando pistas y efectos de Ableton...", async () => {
