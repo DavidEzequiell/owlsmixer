@@ -5,6 +5,7 @@ import {
   volToZLog, zToVolLog,
   freqToY, yToFreq, formatFreq, getApparentVolumeLevel,
 } from "./engine/psychoacoustics.js";
+import { ROLES } from "./data/roles.js";
 
 export {
   HALF_W, HALF_H, HALF_D, clamp,
@@ -35,16 +36,21 @@ export function formatPan(pan) {
   return pan < 0 ? `${Math.round(-pan * 50)}L` : `${Math.round(pan * 50)}R`;
 }
 
+export const APP_VERSION = "0.0.7";
+
 const DEFAULT_SETTINGS = {
   volUnit: "db",
   zMode: "gibson",
   showReverbCubes: true,
   showVolLevels: true,
   showFreqBands: true,
+  showFloorShadows: true,
+  showDropLines: true,
   showEqTips: true,
   freqSizing: true,
-  showCollisions: true,    // Nuevo: Detector Solar Eclipse en 3D
-  lufsTarget: "indie",     // Nuevo: streaming | indie | heavy | acoustic
+  showCollisions: true,    // Detector Solar Eclipse en 3D
+  lufsTarget: "indie",     // streaming | indie | heavy | acoustic
+  autoSize: true,          // Crest Factor + corte <300Hz en EQ
   skin: "gibson_dark",
 };
 
@@ -101,7 +107,19 @@ class Store extends EventTarget {
     this.undoStack = [];
     this.redoStack = [];
     this.MAX_HISTORY = 40;
+    // Bancos rápidos A/B/C/D y estado DRY (Bypass espacial/EQ)
+    this.banks = { A: null, B: null, C: null, D: null };
+    this.activeBank = null;
+    this.isDryBypass = false;
+    this.dryReturnSnapshot = null;
+    this.flashFreeze = false;
+    this.scenes = [];
+    this.scenesAutoEnabled = false;
+    this.currentSongBeat = 0;
+    this.lastSceneRuleId = null;
   }
+
+  
 
   emit(eventName, detail = null) {
     this.dispatchEvent(new CustomEvent(eventName, { detail }));
@@ -147,6 +165,7 @@ class Store extends EventTarget {
 
   captureSnapshot() {
     return {
+      reverb: { decay: this.reverbInfo.decay, predelay: this.reverbInfo.predelay },
       virtualGroups: this.virtualGroups.map((g) => ({ ...g })),
       tracks: this.tracks.map((t) => ({
         id: t.id,
@@ -178,7 +197,10 @@ class Store extends EventTarget {
       })),
     };
   }
-
+  toggleFlashFreeze() {
+    this.flashFreeze = !this.flashFreeze;
+    this.emit("flash-changed", this.flashFreeze);
+  }
   pushHistory(beforeSnapshot) {
     if (!beforeSnapshot) return;
     this.undoStack.push(beforeSnapshot);
@@ -235,15 +257,118 @@ class Store extends EventTarget {
     this.emit("groups");
   }
 
+  saveBank(slot) {
+    if (!["A", "B", "C", "D"].includes(slot)) return;
+    this.banks[slot] = this.captureSnapshot();
+    this.activeBank = slot;
+    this.isDryBypass = false;
+    this.dryReturnSnapshot = null;
+    this.emit("banks-changed");
+  }
+
+  clearBank(slot) {
+    if (!["A", "B", "C", "D"].includes(slot)) return;
+    this.banks[slot] = null;
+    if (this.activeBank === slot) this.activeBank = null;
+    this.emit("banks-changed");
+  }
+
+  buildDrySnapshot(baseSnap) {
+      return {
+        reverb: baseSnap.reverb,
+        virtualGroups: baseSnap.virtualGroups,
+        tracks: baseSnap.tracks.map((t) => ({
+          ...t,
+          pan: 0,
+          vol: 0.85, // 0.0 dB neutro de Ableton Live
+          sendA: 0,
+          y: ROLES[t.role]?.defaultY ?? 0,
+          shape: "sphere",
+          sizeScale: 1.0,
+          eqBands: Array.isArray(t.eqBands)
+            ? t.eqBands.map((b) => ({ ...b, on: false }))
+            : null,
+        })),
+      };
+    }
+
+  backfillBankEq(trackItem) {
+    if (!trackItem?.eq?.bound) return;
+    const eqSnapshot = trackItem.eq.bands.map((b) => ({
+      bandNum: b.bandNum,
+      on: b.on,
+      type: b.type,
+      freqHz: b.freqHz,
+      gainDb: b.gainDb,
+      q: b.q,
+    }));
+    const targets = [
+      ...Object.values(this.banks),
+      this.dryReturnSnapshot,
+      ...this.undoStack,
+      ...this.redoStack,
+    ];
+    for (const snap of targets) {
+      if (!snap || !Array.isArray(snap.tracks)) continue;
+      const entry = snap.tracks.find((t) => t.id === trackItem.id);
+      if (entry && entry.eqBands === null) {
+        entry.eqBands = eqSnapshot.map((b) => ({ ...b }));
+      }
+    }
+  }
+  addSceneRule(beat = 0, bank = "A", label = "") {
+    const cleanBeat = Math.max(0, Math.round((Number(beat) || 0) * 4) / 4);
+    const bar = Math.floor(cleanBeat / 4) + 1;
+    const rule = {
+      id: "sc_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+      beat: cleanBeat,
+      bar,
+      bank: ["A", "B", "C", "D"].includes(bank) ? bank : "A",
+      label: (label || "").trim() || `Compás ${bar}`,
+    };
+    this.scenes.push(rule);
+    this.scenes.sort((a, b) => a.beat - b.beat);
+    this.emit("scenes-changed");
+    return rule;
+  }
+
+  updateSceneRule(id, patch) {
+    const r = this.scenes.find((s) => s.id === id);
+    if (!r) return;
+    if (typeof patch.beat === "number") {
+      r.beat = Math.max(0, patch.beat);
+      r.bar = Math.floor(r.beat / 4) + 1;
+    }
+    if (patch.bank && ["A", "B", "C", "D"].includes(patch.bank)) r.bank = patch.bank;
+    if (typeof patch.label === "string") r.label = patch.label;
+    this.scenes.sort((a, b) => a.beat - b.beat);
+    this.emit("scenes-changed");
+  }
+
+  removeSceneRule(id) {
+    this.scenes = this.scenes.filter((s) => s.id !== id);
+    this.emit("scenes-changed");
+  }
+
+  getActiveSceneForBeat(beat) {
+    let active = null;
+    for (const r of this.scenes) {
+      if (beat + 0.05 >= r.beat) active = r;
+      else break;
+    }
+    return active;
+  }
+
   buildExportPayload() {
     return {
       app: "Owls3DMixer",
-      version: "0.0.5",
+      version: APP_VERSION,
       projectTitle: "Mix by OwlsMixer3D",
       exportedAt: new Date().toISOString(),
       settings: this.settings,
       reverb: { decay: this.reverbInfo.decay, predelay: this.reverbInfo.predelay },
       snapshot: this.captureSnapshot(),
+      scenes: this.scenes,
     };
   }
 }

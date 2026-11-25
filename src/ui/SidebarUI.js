@@ -38,13 +38,18 @@ export class SidebarUI {
     this.valSend = document.getElementById("val-send");
     this.slY = document.getElementById("sl-y");
     this.valY = document.getElementById("val-y");
+    this.yReadonlyHint = document.getElementById("y-readonly-hint");
     this.slSize = document.getElementById("sl-size");
     this.valSize = document.getElementById("val-size");
     this.btnToggleShape = document.getElementById("btn-toggle-shape");
     this.btnToggleLock = document.getElementById("btn-toggle-lock");
     this.eqTipBox = document.getElementById("eq-tip-box");
+    this.colorPopover = document.getElementById("color-popover");
+    this.colorPopoverTitle = document.getElementById("color-popover-title");
+    this.btnCloseColorPopover = document.getElementById("btn-close-color-popover");
     this.colorSwatchesEl = document.getElementById("color-swatches");
     this.inpCustomColor = document.getElementById("inp-custom-color");
+    this.colorTargetTrack = null;
 
     this.slGrpPan = document.getElementById("sl-grp-pan");
     this.valGrpPan = document.getElementById("val-grp-pan");
@@ -58,12 +63,15 @@ export class SidebarUI {
     this.trackCountEl = document.getElementById("track-count");
     this.trackListEl = document.getElementById("track-list");
 
-    this.singleSliderBefore = null;
+   
     this.multiSliderActive = false;
     this.multiBeforeSnapshot = null;
     this.multiBase = [];
     this.multiBaseAvg = { pan: 0, vol: 0, sendA: 0 };
     this.draggedTrackId = null;
+    this.activeSingleSlider = null;
+     this.singleSliderBefore = null;
+
 
     this.btnQuickEq = document.getElementById("btn-quick-eq");
     this.btnOpenEqWin = document.getElementById("btn-open-eq-win");
@@ -73,6 +81,8 @@ export class SidebarUI {
     this.initGroupsUI();
     this.initInspectorUI();
     this.initColorPickerUI();
+    this.initScenesUI();
+    this.initSliderDoubleClickResets();
   }
 
   initCollapsibleSections() {
@@ -183,19 +193,27 @@ export class SidebarUI {
   }
 
   initInspectorUI() {
-    const startSingle = () => {
+    const startSingle = (sl) => {
       const sel = store.getSelectedTracks();
       if (sel.length !== 1 || sel[0].locked) return;
+      if (sl === this.slY && !sel[0].eq?.hasDevice) return;
+      this.activeSingleSlider = sl;
       this.singleSliderBefore = store.captureSnapshot();
       sel[0].isDragging = true;
     };
     const endSingle = () => {
       const sel = store.getSelectedTracks();
+      const wasY = this.activeSingleSlider === this.slY;
+      this.activeSingleSlider = null;
+
       if (sel.length === 1) {
         const item = sel[0];
         item._ableton.setPanLive(item.pan, true);
         item._ableton.setVolLive(item.vol, true);
         item._ableton.setSendALive(item.sendA, true);
+        if (wasY && item.eq?.hasDevice) {
+          abletonService.applyYAxisTiltEq(item, { immediate: true });
+        }
         item.isDragging = false;
       }
       if (this.singleSliderBefore) {
@@ -205,7 +223,7 @@ export class SidebarUI {
     };
 
     [this.slPan, this.slVol, this.slSend, this.slY, this.slSize].forEach((sl) => {
-      sl.addEventListener("pointerdown", startSingle);
+      sl.addEventListener("pointerdown", () => startSingle(sl));
       sl.addEventListener("pointerup", endSingle);
       sl.addEventListener("change", endSingle);
     });
@@ -239,8 +257,9 @@ export class SidebarUI {
 
     this.slY.addEventListener("input", () => {
       const sel = store.getSelectedTracks();
-      if (sel.length !== 1 || sel[0].locked) return;
+      if (sel.length !== 1 || sel[0].locked || !sel[0].eq?.hasDevice) return;
       sel[0].y = parseFloat(this.slY.value);
+      abletonService.applyYAxisTiltEq(sel[0], { immediate: false });
       this.onTrackVisualChanged(sel[0]);
       this.updateInspector();
     });
@@ -370,6 +389,77 @@ export class SidebarUI {
       this.onTrackVisualChanged();
     });
   }
+
+  initSliderDoubleClickResets() {
+    const resetSingle = (slider, applyFn) => {
+      slider?.addEventListener("dblclick", () => {
+        if (slider.disabled) return;
+        const sel = store.getSelectedTracks();
+        if (sel.length !== 1 || sel[0].locked) return;
+        store.pushHistory(store.captureSnapshot());
+        applyFn(sel[0]);
+        this.onTrackVisualChanged(sel[0]);
+        this.updateInspector();
+      });
+    };
+
+    resetSingle(this.slPan, (item) => {
+      item.pan = 0;
+      item._ableton.setPanLive(0, true);
+    });
+    resetSingle(this.slVol, (item) => {
+      item.vol = 0.85; // 0.0 dB neutro de Ableton
+      item._ableton.setVolLive(0.85, true);
+    });
+    resetSingle(this.slSend, (item) => {
+      item.sendA = 0;
+      item._ableton.setSendALive(0, true);
+    });
+    resetSingle(this.slY, (item) => {
+      if (!item.eq?.hasDevice) return;
+      item.y = ROLES[item.role]?.defaultY ?? 0;
+      abletonService.applyYAxisTiltEq(item, { immediate: true });
+    });
+    resetSingle(this.slSize, (item) => {
+      item.sizeScale = 1.0;
+    });
+
+    // Doble clic en sliders de Conjunto (2+ pistas)
+    const resetMulti = (slider, applyFn) => {
+      slider?.addEventListener("dblclick", () => {
+        const sel = store.getSelectedTracks().filter((t) => !t.locked);
+        if (sel.length < 2) return;
+        store.pushHistory(store.captureSnapshot());
+        sel.forEach(applyFn);
+        this.onTrackVisualChanged();
+        this.updateInspector();
+      });
+    };
+
+    resetMulti(this.slGrpPan, (item) => {
+      item.pan = 0;
+      item._ableton.setPanLive(0, true);
+    });
+    resetMulti(this.slGrpVol, (item) => {
+      item.vol = 0.85;
+      item._ableton.setVolLive(0.85, true);
+    });
+    resetMulti(this.slGrpSend, (item) => {
+      item.sendA = 0;
+      item._ableton.setSendALive(0, true);
+    });
+
+    // Doble clic en sliders de Return A Reverb
+    this.slRevDecay?.addEventListener("dblclick", () => {
+      if (this.slRevDecay.disabled) return;
+      abletonService.setReverbDecay(0.5, true);
+    });
+    this.slRevPre?.addEventListener("dblclick", () => {
+      if (this.slRevPre.disabled) return;
+      abletonService.setReverbPredelay(0.2, true);
+    });
+  }
+
   initColorPickerUI() {
     const ABLETON_PALETTE = [
       "#ff3636", "#ff7c24", "#ffd12a", "#8ce639",
@@ -385,19 +475,59 @@ export class SidebarUI {
       btn.title = hex;
       btn.addEventListener("click", () => {
         btn.blur();
-        const sel = store.getSelectedTracks();
-        if (sel.length === 1) abletonService.setTrackColor(sel[0], hex, true);
+        if (!this.colorTargetTrack) return;
+        abletonService.setTrackColor(this.colorTargetTrack, hex, true);
+        this.closeColorPopover();
       });
       this.colorSwatchesEl.appendChild(btn);
     });
 
     this.inpCustomColor.addEventListener("change", () => {
-      const sel = store.getSelectedTracks();
-      if (sel.length === 1) abletonService.setTrackColor(sel[0], this.inpCustomColor.value, true);
+      if (!this.colorTargetTrack) return;
+      abletonService.setTrackColor(this.colorTargetTrack, this.inpCustomColor.value, true);
+      this.closeColorPopover();
+    });
+
+    this.btnCloseColorPopover?.addEventListener("click", () => this.closeColorPopover());
+
+    document.addEventListener("pointerdown", (e) => {
+      if (
+        this.colorPopover &&
+        !this.colorPopover.classList.contains("hidden") &&
+        !this.colorPopover.contains(e.target)
+      ) {
+        this.closeColorPopover();
+      }
     });
   }
 
-updateInspector() {
+  openColorPopover(item, clientX, clientY) {
+    if (!this.colorPopover || !item) return;
+    this.colorTargetTrack = item;
+    this.colorPopoverTitle.textContent = item.name;
+    this.inpCustomColor.value = item.colorHex;
+    this.colorSwatchesEl.querySelectorAll(".swatch-btn").forEach((b) => {
+      b.classList.toggle("active", b.dataset.hex.toLowerCase() === item.colorHex.toLowerCase());
+    });
+
+    this.colorPopover.classList.remove("hidden");
+    const pw = this.colorPopover.offsetWidth || 196;
+    const ph = this.colorPopover.offsetHeight || 130;
+    const left = Math.max(8, Math.min(window.innerWidth - pw - 8, clientX - pw + 18));
+    const top = Math.max(8, Math.min(window.innerHeight - ph - 8, clientY + 8));
+    this.colorPopover.style.left = `${left}px`;
+    this.colorPopover.style.top = `${top}px`;
+  }
+
+  isColorPopoverOpen() {
+    return Boolean(this.colorPopover && !this.colorPopover.classList.contains("hidden"));
+  }
+
+  closeColorPopover() {
+    this.colorPopover?.classList.add("hidden");
+    this.colorTargetTrack = null;
+  }
+  updateInspector() {
     const sel = store.getSelectedTracks();
     const unit = store.settings.volUnit;
 
@@ -416,12 +546,8 @@ updateInspector() {
       this.valSend.textContent = "0%";
       this.valY.textContent = "--";
       this.valSize.textContent = "1.00x";
+      this.yReadonlyHint?.classList.add("hidden");
       this.eqTipBox.classList.add("hidden");
-      this.inpCustomColor.disabled = true;
-      this.colorSwatchesEl.querySelectorAll(".swatch-btn").forEach((b) => {
-        b.disabled = true;
-        b.classList.remove("active");
-      });
       return;
     }
 
@@ -432,7 +558,16 @@ updateInspector() {
 
       this.inspSingle.classList.remove("hidden");
       this.inspMulti.classList.add("hidden");
-      [this.slPan, this.slVol, this.slY, this.slSize].forEach((c) => (c.disabled = item.locked));
+      const autoOn = store.settings.autoSize;
+      [this.slPan, this.slVol].forEach((c) => (c.disabled = item.locked));
+      this.slY.disabled = item.locked || !hasEq;
+      this.slY.title = hasEq
+        ? "Tilt EQ real en Ableton (Banda 6 Low-Shelf + Banda 7 High-Shelf)"
+        : "Solo lectura: agregá un EQ Eight en esta pista en Ableton para mover el Eje Y";
+      this.yReadonlyHint?.classList.toggle("hidden", hasEq);
+
+      this.slSize.disabled = item.locked || autoOn;
+      this.slSize.title = autoOn ? "Controlado por Auto-Size (desactivalo en el Dock para ajustar manual)" : "";
       this.slSend.disabled = item.locked || !item._ableton.sendAParam;
       this.btnToggleShape.disabled = false;
       this.btnToggleLock.disabled = false;
@@ -451,12 +586,14 @@ updateInspector() {
       this.slSend.value = item.sendA;
       this.valSend.textContent = item._ableton.sendAParam ? `${Math.round(item.sendA * 100)}%` : "Sin Return A";
       this.slY.value = item.y;
-      const bandLabel = item.y < -1.5 ? "Low" : item.y > 1.5 ? "High" : "Mid";
+      const bandLabel = hasEq ? "Tilt EQ" : "Solo visual";
       this.valY.textContent = `${formatFreq(yToFreq(item.y))} · ${bandLabel}`;
 
       const sc = item.sizeScale ?? 1.0;
-      this.slSize.value = sc;
-      this.valSize.textContent = `${sc.toFixed(2)}x`;
+      const autoMult = autoOn ? (item.crestScale ?? 1.0) * (item._eqLowCutScale ?? 1.0) : 1.0;
+      const shownScale = clamp(sc * autoMult, 0.4, 2.4);
+      this.slSize.value = autoOn ? shownScale : sc;
+      this.valSize.textContent = autoOn ? `Auto ${shownScale.toFixed(2)}x` : `${sc.toFixed(2)}x`;
 
       this.btnToggleShape.textContent = item.shape === "oblong" ? "Forma: Elipsoide" : "Forma: Esfera";
       this.btnToggleLock.textContent = item.locked ? "🔒 Bloqueada" : "🔓 Libre";
@@ -469,12 +606,6 @@ updateInspector() {
         this.eqTipBox.classList.add("hidden");
       }
 
-      this.inpCustomColor.disabled = false;
-      this.inpCustomColor.value = item.colorHex;
-      this.colorSwatchesEl.querySelectorAll(".swatch-btn").forEach((b) => {
-        b.disabled = false;
-        b.classList.toggle("active", b.dataset.hex.toLowerCase() === item.colorHex.toLowerCase());
-      });
       return;
     }
 
@@ -580,14 +711,27 @@ updateInspector() {
     chk.addEventListener("click", (e) => { e.stopPropagation(); store.toggleInSelection(item.id); });
 
     const sw = document.createElement("span");
-    sw.className = "track-swatch";
+    sw.className = "track-swatch track-swatch-btn";
     sw.style.background = item.colorHex;
+    sw.title = "Clic derecho para cambiar color (DAW + 3D)";
+    sw.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.openColorPopover(item, e.clientX, e.clientY);
+    });
 
     const nm = document.createElement("span");
     nm.className = "track-name";
     nm.textContent = item.isGroup ? `📁 ${item.name} (Bus)` : item.name;
     nm.title = "Doble clic para renombrar en Ableton";
     nm.addEventListener("dblclick", (e) => { e.stopPropagation(); this.startInlineRename(item, nm); });
+
+    const eqBadge = document.createElement("span");
+    eqBadge.className = "eq-badge" + (item.eq?.hasDevice ? "" : " hidden");
+    eqBadge.textContent = "EQ";
+    eqBadge.title = item.eq?.hasDevice
+      ? `${item.eq.deviceName || "EQ Eight"} detectado — Eje Y (Tilt EQ) y EQ Window activos`
+      : "";
 
     const btnEye = document.createElement("button");
     btnEye.className = "icon-btn" + (item.hidden ? " hidden-on" : "");
@@ -636,7 +780,7 @@ updateInspector() {
       else store.setSelection([item.id]);
     });
 
-    div.append(chk, sw, nm, btnEye, btnLock, btnM, btnS, sel);
+    div.append(chk, sw, nm, eqBadge, btnEye, btnLock, btnM, btnS, sel);
     return div;
   }
 
@@ -750,6 +894,90 @@ updateInspector() {
       if (!item) return;
       el.querySelector(".btn-mute")?.classList.toggle("muted", item.mute);
       el.querySelector(".btn-solo")?.classList.toggle("soloed", item.solo);
+    });
+  }
+  initScenesUI() {
+    this.valSongBar = document.getElementById("val-song-bar");
+    this.btnScenesAuto = document.getElementById("btn-scenes-auto");
+    this.btnAddScene = document.getElementById("btn-add-scene");
+    this.btnImportCues = document.getElementById("btn-import-cues");
+    this.scenesListEl = document.getElementById("scenes-list");
+
+    this.btnScenesAuto.addEventListener("click", () => {
+      this.btnScenesAuto.blur();
+      store.scenesAutoEnabled = !store.scenesAutoEnabled;
+      store.lastSceneRuleId = null;
+      this.syncScenesUI();
+    });
+
+    this.btnAddScene.addEventListener("click", () => {
+      this.btnAddScene.blur();
+      const bank = store.activeBank || "A";
+      const bar = Math.floor((store.currentSongBeat || 0) / 4) + 1;
+      const defLabel = store.scenes.length === 0 ? "Verso" : store.scenes.length === 1 ? "Estribillo" : `Compás ${bar}`;
+      store.addSceneRule(store.currentSongBeat || 0, bank, defLabel);
+    });
+
+    this.btnImportCues.addEventListener("click", async () => {
+      this.btnImportCues.blur();
+      const count = await abletonService.importCueLocators();
+      if (count === 0) alert("No se encontraron Locators/Cue Points en el proyecto de Ableton.");
+    });
+
+    this.syncScenesUI();
+  }
+
+  updateSongBar(beats) {
+    if (!this.valSongBar) return;
+    const bar = Math.floor((Number(beats) || 0) / 4) + 1;
+    this.valSongBar.textContent = `Compás ${bar}`;
+  }
+
+  syncScenesUI() {
+    if (!this.scenesListEl) return;
+    this.btnScenesAuto.textContent = store.scenesAutoEnabled ? "Auto: ON" : "Auto: OFF";
+    this.btnScenesAuto.classList.toggle("active-toggle", store.scenesAutoEnabled);
+
+    const scenes = store.scenes || [];
+    this.scenesListEl.innerHTML = "";
+    if (scenes.length === 0) {
+      this.scenesListEl.innerHTML = `<div class="muted-note" style="margin:2px 0 0;">Guardá Verso en <b>A</b> y Estribillo en <b>B</b>, y tocá "+ Escena" mientras suena el tema.</div>`;
+      return;
+    }
+
+    scenes.forEach((r) => {
+      // ... el resto igual
+      const row = document.createElement("div");
+      row.className = "scene-row";
+
+      const barTag = document.createElement("span");
+      barTag.className = "scene-bar";
+      barTag.textContent = `C.${r.bar}`;
+
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.className = "scene-name";
+      inp.value = r.label;
+      inp.addEventListener("change", () => store.updateSceneRule(r.id, { label: inp.value }));
+
+      const sel = document.createElement("select");
+      sel.className = "scene-bank";
+      ["A", "B", "C", "D"].forEach((b) => {
+        const opt = document.createElement("option");
+        opt.value = b;
+        opt.textContent = `Banco ${b}`;
+        if (b === r.bank) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.addEventListener("change", () => store.updateSceneRule(r.id, { bank: sel.value }));
+
+      const del = document.createElement("button");
+      del.className = "icon-btn";
+      del.textContent = "×";
+      del.addEventListener("click", () => store.removeSceneRule(r.id));
+
+      row.append(barTag, inp, sel, del);
+      this.scenesListEl.appendChild(row);
     });
   }
 }

@@ -231,3 +231,54 @@ export function computeEqYShift(bands) {
 
   return clamp(shift, -1.1, 1.1);
 }
+// Estima cuánto achica la huella espacial un recorte de graves (<300 Hz) en EQ Eight
+export function computeEqLowCutScale(bands) {
+  if (!Array.isArray(bands)) return 1.0;
+  let factor = 1.0;
+
+  for (const b of bands) {
+    if (!b.on) continue;
+    if ((b.type === EQ_FILTER_TYPES.HP_48 || b.type === EQ_FILTER_TYPES.HP_12) && b.freqHz > 50) {
+      factor -= clamp(Math.log10(b.freqHz / 50) * 0.42, 0, 0.34);
+    } else if (
+      (b.type === EQ_FILTER_TYPES.LOW_SHELF || b.type === EQ_FILTER_TYPES.BELL) &&
+      b.freqHz <= 300 &&
+      b.gainDb < -1.0
+    ) {
+      factor -= clamp((-b.gainDb / 15) * 0.22, 0, 0.20);
+    }
+  }
+  return clamp(factor, 0.58, 1.05);
+  
+}
+
+// Elige la mejor banda Bell para hacer Carve (reutiliza si ya hay un recorte cerca)
+export function pickCarveBandSlot(bands, targetHz) {
+  if (!Array.isArray(bands) || bands.length === 0) return 2;
+
+  // 1) Si ya hay una banda Bell/Shelf activa cerca (±35% en Hz), profundizar esa misma
+  const nearIdx = bands.findIndex(
+    (b) =>
+      b.on &&
+      b.type >= EQ_FILTER_TYPES.LOW_SHELF &&
+      b.type <= EQ_FILTER_TYPES.HIGH_SHELF &&
+      Math.abs(Math.log2(Math.max(20, b.freqHz) / Math.max(20, targetHz))) < 0.45
+  );
+  if (nearIdx !== -1) return nearIdx;
+
+  // 2) Banda apagada en slots medios (dejando 1 y 8 libres para HPF/LPF)
+  for (const idx of [2, 3, 4, 5, 1, 6, 0, 7]) {
+    if (bands[idx] && !bands[idx].on) return idx;
+  }
+
+  // 3) Fallback: la banda Bell más cercana
+  let bestIdx = 2;
+  let bestDist = Infinity;
+  bands.forEach((b, idx) => {
+    if (b.type >= EQ_FILTER_TYPES.LOW_SHELF && b.type <= EQ_FILTER_TYPES.HIGH_SHELF) {
+      const d = Math.abs(Math.log2(Math.max(20, b.freqHz) / Math.max(20, targetHz)));
+      if (d < bestDist) { bestDist = d; bestIdx = idx; }
+    }
+  });
+  return bestIdx;
+}

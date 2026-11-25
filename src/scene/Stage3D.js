@@ -29,6 +29,9 @@ export class Stage3D {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     viewportEl.appendChild(this.renderer.domElement);
 
+    this.onLiveMixTick = null;
+    this.lastLiveAnalysis = 0;
+
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.07;
@@ -251,8 +254,15 @@ export class Stage3D {
   }
 
   rebuildGrids(s) {
-    if (this.stageRefs.floorGrid) this.scene.remove(this.stageRefs.floorGrid);
-    if (this.stageRefs.backGrid) this.scene.remove(this.stageRefs.backGrid);
+    const disposeHelper = (obj) => {
+      if (!obj) return;
+      this.scene.remove(obj);
+      obj.geometry?.dispose();
+      if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+      else obj.material?.dispose();
+    };
+    disposeHelper(this.stageRefs.floorGrid);
+    disposeHelper(this.stageRefs.backGrid);
 
     const floorGrid = new THREE.GridHelper(HALF_W * 2, 10, s.floorMain, s.floorSub);
     floorGrid.scale.z = HALF_D / HALF_W;
@@ -527,6 +537,19 @@ export class Stage3D {
     this.controls.update();
   }
 
+ attachContextLossHandler(onLost) {
+    this.contextLost = false;
+    this.renderer.domElement.addEventListener("webglcontextlost", (e) => {
+      e.preventDefault();
+      this.contextLost = true;
+      onLost?.(new Error("Se perdió el contexto WebGL de la tarjeta gráfica."));
+    });
+    this.renderer.domElement.addEventListener("webglcontextrestored", () => {
+      this.contextLost = false;
+      this.resize();
+    });
+  }
+
   resize() {
     this.camera.aspect = this.viewportEl.clientWidth / this.viewportEl.clientHeight;
     this.camera.updateProjectionMatrix();
@@ -536,6 +559,8 @@ export class Stage3D {
   startLoop() {
     const tick = () => {
       requestAnimationFrame(tick);
+      if (this.contextLost) return;
+
       this.controls.update();
       if (this.centroidMarker.visible) this.centroidMarker.rotation.y += 0.02;
 
@@ -547,13 +572,36 @@ export class Stage3D {
         });
       }
 
+      let anyMoving = false;
       for (const item of store.tracks) {
-        item.smoothMeter += (item.meter - item.smoothMeter) * 0.25;
-        if (item.smoothMeter > 0.002 || item.meter > 0.002 || item.locked) {
+        if (!store.flashFreeze) {
+          const m = item.meter || 0;
+          item.smoothMeter += (m - item.smoothMeter) * 0.25;
+          item.peakEnv = m > (item.peakEnv || 0)
+            ? item.peakEnv + (m - item.peakEnv) * 0.60
+            : (item.peakEnv || 0) * 0.94;
+          item.rmsEnv = (item.rmsEnv || 0) + (m - (item.rmsEnv || 0)) * 0.05;
+
+          const crestRatio = item.rmsEnv > 0.015 ? Math.max(1, Math.min(5, item.peakEnv / item.rmsEnv)) : 2.0;
+          const targetCrest = item.peakEnv > 0.04
+            ? Math.max(0.80, Math.min(1.32, 1.34 - Math.log2(crestRatio) * 0.24))
+            : 1.0;
+          item.crestScale = (item.crestScale ?? 1.0) + (targetCrest - (item.crestScale ?? 1.0)) * 0.08;
+        }
+
+        if (item.smoothMeter > 0.002 || item.meter > 0.002 || Math.abs((item.crestScale ?? 1) - 1) > 0.01 || item.locked) {
           const orb = this.orbs.get(item.id);
           if (orb && orb.group.visible) orb.sync(this.camera);
+          if (item.meter > 0.01) anyMoving = true;
         }
       }
+
+      const now = performance.now();
+      if (anyMoving && store.settings.autoSize && !store.flashFreeze && store.viewMode === "mix" && now - this.lastLiveAnalysis > 1500) {
+        this.lastLiveAnalysis = now;
+        this.onLiveMixTick?.();
+      }
+
       this.renderer.render(this.scene, this.camera);
     };
     tick();

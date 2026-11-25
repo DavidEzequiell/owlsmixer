@@ -631,6 +631,71 @@ body[data-skin="gibson_90s"] .group-toggle-label { color: #111111; }
 body[data-skin="gibson_90s"] .swatch-btn { border-radius: 0; border: 1px solid #404040; }
 body[data-skin="gibson_90s"] .swatch-btn.active { border: 2px solid #000080; box-shadow: none; }
 /* =========================================================================
+   SKIN: "ABLETON LIVE 12 (DARK)"
+   ========================================================================= */
+body[data-skin="ableton_live"] {
+  --font-ui: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+body[data-skin="ableton_live"] .toolbar-pill,
+body[data-skin="ableton_live"] .render-dock,
+body[data-skin="ableton_live"] .floating-window,
+body[data-skin="ableton_live"] .modal-card,
+body[data-skin="ableton_live"] .hud-help {
+  background: #242424;
+  border: 1px solid #111111;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  border-radius: 4px;
+  backdrop-filter: none;
+}
+body[data-skin="ableton_live"] button,
+body[data-skin="ableton_live"] select,
+body[data-skin="ableton_live"] .segmented,
+body[data-skin="ableton_live"] .track-item,
+body[data-skin="ableton_live"] .group-header,
+body[data-skin="ableton_live"] .scene-row,
+body[data-skin="ableton_live"] .collision-card,
+body[data-skin="ableton_live"] .master-lufs-box {
+  border-radius: 3px;
+}
+body[data-skin="ableton_live"] button.primary {
+  background: #ff8c2b;
+  border-color: #ffa654;
+  color: #111111;
+  font-weight: 700;
+}
+body[data-skin="ableton_live"] .segmented button.active,
+body[data-skin="ableton_live"] button.btn-toggle.active,
+body[data-skin="ableton_live"] button.active-toggle {
+  background: #ff8c2b;
+  border-color: #ff8c2b;
+  color: #111111;
+  font-weight: 700;
+}
+body[data-skin="ableton_live"] button.primary-soft {
+  background: rgba(255, 140, 43, 0.16);
+  border-color: #ff8c2b;
+  color: #ffb875;
+}
+body[data-skin="ableton_live"] .track-item.selected {
+  background: #2b3e4a;
+  border-color: #52c7ff;
+}
+body[data-skin="ableton_live"] .panel-title {
+  background: #1d1d1d;
+  padding: 4px 7px;
+  border-radius: 3px;
+  color: #b8b8b8;
+}
+body[data-skin="ableton_live"] .pill-info {
+  background: #1a1a1a;
+  border-color: #484848;
+  color: #52c7ff;
+  border-radius: 3px;
+}
+body[data-skin="ableton_live"] input[type="range"] {
+  accent-color: #ff8c2b;
+}
+/* =========================================================================
    PANEL PSICOACÚSTICO (US-08: LUFS, Espacio 3D y Colisiones Solar Eclipse)
    ========================================================================= */
 .psycho-top-row {
@@ -864,4 +929,835 @@ body[data-skin="winamp_classic"] .group-header {
 
 body[data-skin="winamp_classic"] input[type="range"] {
   accent-color: #f5b700;
+}
+/* Bancos A/B/C/D y DRY Bypass */
+.bank-btn { position: relative; min-width: 24px; font-weight: 700; color: var(--text-muted); }
+.bank-btn.has-data { color: var(--text-main); }
+.bank-btn.has-data::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.bank-btn.active::after { background: #fff; }
+#btn-dry-bypass.dry-on {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: var(--warn);
+  color: #fde68a;
+  font-weight: 700;
+}
+.bank-btn.saved-flash {
+  animation: bankFlash 0.45s ease;
+}
+@keyframes bankFlash {
+  0%   { box-shadow: 0 0 0 2px #4ade80; background: #16a34a; color: #fff; }
+  100% { box-shadow: none; }
+}
+/* Tooltip en vivo sobre sombra / cursor al arrastrar */
+.drag-tooltip {
+  position: absolute;
+  z-index: 25;
+  pointer-events: none;
+  background: rgba(10, 14, 24, 0.92);
+  border: 1px solid var(--accent);
+  color: #f8fafc;
+  padding: 4px 9px;
+  border-radius: 7px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
+}
+body[data-skin="gibson_90s"] .drag-tooltip {
+  background: #ffffe1;
+  color: #000;
+  border: 1px solid #000;
+  border-radius: 0;
+}
+
+/* Modo Focus / Ocultar Sidebar */
+body.sidebar-hidden #sidebar,
+body.sidebar-hidden #sidebar-resizer {
+  display: none;
+}
+
+/* Tarjetas de colisión + botones Carve */
+.collision-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 6px;
+  border-radius: 7px;
+  background: rgba(245, 158, 11, 0.10);
+  border: 1px solid rgba(245, 158, 11, 0.42);
+}
+.collision-card.is-mud {
+  background: rgba(239, 68, 68, 0.13);
+  border-color: rgba(239, 68, 68, 0.50);
+}
+.collision-card .collision-item {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+.collision-actions {
+  display: flex;
+  gap: 4px;
+}
+.carve-btn {
+  flex: 1;
+  font-size: 10px !important;
+  padding: 2px 5px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.carve-btn.suggested {
+  border-color: var(--accent);
+  color: #bfdbfe;
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg-control));
+  font-weight: 600;
+}
+body[data-skin="gibson_90s"] .collision-card { background: #fff3cd; border-color: #b45309; }
+body[data-skin="gibson_90s"] .collision-card.is-mud { background: #fee2e2; border-color: #b91c1c; }
+body[data-skin="gibson_90s"] .carve-btn.suggested { background: #c596e8; color: #000; border-color: #000080; }
+/* Escenas / Timeline */
+.scenes-list { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.scene-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 5px;
+}
+.scene-bar { font-size: 10.5px; font-weight: 700; color: var(--accent); min-width: 34px; }
+.scene-name {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  color: var(--text-main);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 11px;
+  user-select: text;
+}
+.scene-name:focus { border-color: var(--accent); background: var(--bg-app); outline: none; }
+.scene-bank { padding: 2px 4px; font-size: 10.5px; }
+/* =========================================================================
+   CRASH / ERROR RECOVERY OVERLAY (v0.0.7)
+   ========================================================================= */
+.error-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 8, 15, 0.78);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100000;
+}
+.error-card {
+  width: 480px;
+  max-width: 92vw;
+  background: var(--bg-panel);
+  border: 1px solid var(--danger);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.7);
+}
+.error-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.14);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 700;
+  color: #fecaca;
+}
+.error-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.error-message { font-size: 12.5px; color: var(--text-main); line-height: 1.45; }
+.error-hint {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  border-left: 3px solid var(--warn);
+  padding: 8px 10px;
+  border-radius: 5px;
+  line-height: 1.45;
+}
+.error-details-wrap summary {
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.error-details {
+  margin-top: 6px;
+  max-height: 140px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 10.5px;
+  color: #fca5a5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+.error-actions {
+  display: flex;
+  gap: 8px;
+  padding: 11px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.error-actions .primary { flex: 1; }
+
+body[data-skin="gibson_90s"] .error-card {
+  border-radius: 0;
+  background: #c0c0c0;
+  color: #000;
+  border: 2px outset #ffffff;
+}
+body[data-skin="gibson_90s"] .error-header {
+  background: #800000;
+  color: #ffffff;
+}
+body[data-skin="gibson_90s"] .error-message,
+body[data-skin="gibson_90s"] .error-hint { color: #000; }
+
+/* =========================================================================
+   POPOVER DE CAPAS EN EL DOCK INFERIOR (v0.0.7)
+   ========================================================================= */
+.dock-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.dock-popover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.58);
+  z-index: 40;
+  white-space: nowrap;
+}
+.dock-popover-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  font-weight: 700;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+.dock-popover-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 2px 0;
+}
+.layer-toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-main);
+  padding: 3px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.layer-toggle-item:hover {
+  background: var(--bg-card-hover);
+}
+.layer-toggle-item input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+body[data-skin="gibson_90s"] .dock-popover {
+  background: #c0c0c0;
+  color: #000;
+  border-radius: 0;
+  border-top: 2px solid #fff;
+  border-left: 2px solid #fff;
+  border-right: 2px solid #404040;
+  border-bottom: 2px solid #404040;
+  box-shadow: 2px 2px 0 #000;
+}
+body[data-skin="gibson_90s"] .dock-popover-title,
+body[data-skin="gibson_90s"] .layer-toggle-item { color: #000; }
+
+body[data-skin="ableton_live"] .dock-popover {
+  background: #242424;
+  border: 1px solid #111;
+  border-radius: 4px;
+}
+
+body[data-skin="winamp_classic"] .dock-popover {
+  background: linear-gradient(180deg, #323848 0%, #232734 100%);
+  border-radius: 2px;
+  border: 1px solid #68738f;
+}
+
+/* =========================================================================
+   VENTANAS FLOTANTES & MENÚ VENTANAS EN BARRA SUPERIOR (v0.0.7)
+   ========================================================================= */
+.hud-top,
+.render-dock {
+  z-index: 90;
+}
+
+.floating-window {
+  z-index: 42;
+}
+.floating-window.win-psycho { width: 344px; }
+.floating-window.win-reverb { width: 320px; }
+.floating-window.win-scenes { width: 344px; }
+
+.space-metrics-row {
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.top-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.top-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 225px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.58);
+  z-index: 95;
+  white-space: nowrap;
+}
+
+body[data-skin="gibson_90s"] .top-popover {
+  background: #c0c0c0;
+  color: #000;
+  border-radius: 0;
+  border-top: 2px solid #fff;
+  border-left: 2px solid #fff;
+  border-right: 2px solid #404040;
+  border-bottom: 2px solid #404040;
+  box-shadow: 2px 2px 0 #000;
+}
+body[data-skin="ableton_live"] .top-popover {
+  background: #242424;
+  border: 1px solid #111;
+  border-radius: 4px;
+}
+body[data-skin="winamp_classic"] .top-popover {
+  background: linear-gradient(180deg, #323848 0%, #232734 100%);
+  border-radius: 2px;
+  border: 1px solid #68738f;
+}
+/* =========================================================================
+   EJE Y READ-ONLY, MANUAL ESTILO VIDEOJUEGO & EASTER EGG VHS (v0.0.7)
+   ========================================================================= */
+.y-readonly-hint {
+  margin-top: 2px;
+  font-size: 9.5px;
+  color: var(--warn);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.modal-settings {
+  width: 640px;
+}
+
+.manual-diagram-slot {
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-app);
+  padding: 12px;
+  text-align: center;
+}
+.manual-diagram-img {
+  max-width: 100%;
+  max-height: 240px;
+  border-radius: 6px;
+  display: block;
+  margin: 0 auto;
+}
+.manual-diagram-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 6px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+.diagram-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.manual-diagram-placeholder code {
+  color: var(--text-main);
+  background: var(--bg-card);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.manual-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+@media (max-width: 600px) {
+  .manual-grid { grid-template-columns: 1fr; }
+}
+.manual-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.42;
+}
+.manual-card b {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+.manual-card p {
+  color: var(--text-muted);
+}
+.manual-card code {
+  background: var(--bg-app);
+  color: var(--text-main);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+.manual-num {
+  flex-shrink: 0;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-app));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.version-egg-btn {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--bg-app);
+  border: 1px solid var(--border-strong);
+}
+.version-egg-btn:hover {
+  color: var(--text-main);
+  border-color: var(--accent);
+}
+
+.easter-egg-panel {
+  margin: 0 16px 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, rgba(121, 188, 232, 0.16), rgba(168, 85, 247, 0.18));
+  border: 1px solid #a855f7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.egg-title {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  color: #facc15;
+  letter-spacing: 0.04em;
+}
+.egg-desc {
+  font-size: 11.5px;
+  color: var(--text-main);
+  line-height: 1.4;
+}
+.egg-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.egg-yt-btn {
+  background: #dc2626 !important;
+  border-color: #f87171 !important;
+  color: #ffffff !important;
+  font-weight: 700;
+}
+
+body[data-skin="gibson_90s"] .manual-card,
+body[data-skin="gibson_90s"] .manual-diagram-slot,
+body[data-skin="gibson_90s"] .easter-egg-panel {
+  border-radius: 0;
+  background: #dfdfdf;
+  color: #000;
+  border: 1px solid #404040;
+}
+body[data-skin="gibson_90s"] .manual-card p,
+body[data-skin="gibson_90s"] .manual-card b,
+body[data-skin="gibson_90s"] .egg-desc { color: #000; }
+body[data-skin="gibson_90s"] .egg-title { color: #000080; }
+body[data-skin="gibson_90s"] .y-readonly-hint { color: #800000; }
+/* =========================================================================
+   PULIDO FINAL v0.0.7: SIDEBAR LEGIBLE, COLOR POPOVER & ATAJOS EN OPCIONES
+   ========================================================================= */
+.track-item {
+  gap: 4px;
+  padding: 5px 6px;
+}
+.track-item.is-child {
+  margin-left: 10px;
+}
+.track-name {
+  min-width: 68px;
+}
+.role-select {
+  width: 76px;
+  padding: 2px 4px;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.track-swatch-btn {
+  width: 12px;
+  height: 12px;
+  cursor: context-menu;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.track-swatch-btn:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 2px #ffffff;
+}
+
+/* Popover flotante de color por clic derecho */
+.color-popover {
+  position: fixed;
+  width: 198px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 9px 10px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.65);
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.color-popover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-main);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 5px;
+}
+.color-popover-header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.color-custom-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+/* Atajos dentro de Instrucciones */
+.shortcuts-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+}
+.shortcuts-box h4 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  margin-bottom: 7px;
+}
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.shortcuts-grid code {
+  background: var(--bg-app);
+  color: var(--text-main);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  margin-right: 4px;
+}
+
+/* Garantizar que footer y Easter Egg nunca se compriman dentro del modal */
+.modal-footer,
+.easter-egg-panel {
+  flex-shrink: 0;
+}
+
+body[data-skin="gibson_90s"] .color-popover,
+body[data-skin="gibson_90s"] .shortcuts-box {
+  background: #c0c0c0;
+  color: #000;
+  border-radius: 0;
+  border: 2px outset #ffffff;
+  box-shadow: 2px 2px 0 #000;
+}
+body[data-skin="gibson_90s"] .color-popover-header,
+body[data-skin="gibson_90s"] .color-custom-row,
+body[data-skin="gibson_90s"] .shortcuts-grid { color: #000; }
+
+body[data-skin="ableton_live"] .color-popover {
+  background: #242424;
+  border: 1px solid #111;
+  border-radius: 4px;
+}
+body[data-skin="winamp_classic"] .color-popover {
+  background: linear-gradient(180deg, #323848 0%, #232734 100%);
+  border-radius: 2px;
+  border: 1px solid #68738f;
+}
+/* =========================================================================
+   SKIN RETRO: "MACINTOSH CLASSIC (SYSTEM 7 / OS 8 PLATINUM)"
+   ========================================================================= */
+body[data-skin="macintosh_classic"] {
+  --font-ui: "Geneva", "Charcoal", "Lucida Grande", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+body[data-skin="macintosh_classic"] #sidebar,
+body[data-skin="macintosh_classic"] .toolbar-pill,
+body[data-skin="macintosh_classic"] .render-dock,
+body[data-skin="macintosh_classic"] .floating-window,
+body[data-skin="macintosh_classic"] .modal-card,
+body[data-skin="macintosh_classic"] .loading-box,
+body[data-skin="macintosh_classic"] .dock-popover,
+body[data-skin="macintosh_classic"] .top-popover,
+body[data-skin="macintosh_classic"] .color-popover,
+body[data-skin="macintosh_classic"] .error-card {
+  background: #dddddd;
+  color: #000000;
+  border: 1px solid #000000;
+  border-radius: 3px;
+  box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #999999, 2px 2px 0 rgba(0, 0, 0, 0.38);
+  backdrop-filter: none;
+}
+
+/* Clásicas rayitas horizontales (pinstripes) de ventanas Macintosh */
+body[data-skin="macintosh_classic"] .floating-header,
+body[data-skin="macintosh_classic"] .modal-header,
+body[data-skin="macintosh_classic"] .panel-title {
+  background: repeating-linear-gradient(
+    to bottom,
+    #f2f2f2 0px,
+    #f2f2f2 1px,
+    #b5b5b5 1px,
+    #b5b5b5 2px
+  );
+  color: #000000;
+  border-bottom: 1px solid #000000;
+  padding: 5px 8px;
+  font-weight: 700;
+  text-shadow: 0 1px 0 #ffffff;
+}
+body[data-skin="macintosh_classic"] .panel-title {
+  border: 1px solid #555555;
+  border-radius: 2px;
+  padding: 3px 6px;
+}
+
+body[data-skin="macintosh_classic"] button,
+body[data-skin="macintosh_classic"] .mini-link-btn {
+  background: linear-gradient(180deg, #fafafa 0%, #dcdcdc 100%);
+  color: #000000;
+  border: 1px solid #111111;
+  border-radius: 4px;
+  box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #aaaaaa;
+}
+body[data-skin="macintosh_classic"] button:active:not(:disabled) {
+  background: #222222;
+  color: #ffffff;
+  box-shadow: none;
+}
+body[data-skin="macintosh_classic"] button.primary {
+  background: linear-gradient(180deg, #f4f4ff 0%, #c8c8ef 100%);
+  border: 2px solid #000000;
+  color: #000000;
+  font-weight: 700;
+}
+body[data-skin="macintosh_classic"] .segmented {
+  background: #c8c8c8;
+  border: 1px solid #444444;
+  border-radius: 4px;
+}
+body[data-skin="macintosh_classic"] .segmented button {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+body[data-skin="macintosh_classic"] .segmented button.active,
+body[data-skin="macintosh_classic"] button.btn-toggle.active,
+body[data-skin="macintosh_classic"] button.active-toggle {
+  background: #333399;
+  color: #ffffff;
+  border-color: #000000;
+  box-shadow: none;
+}
+body[data-skin="macintosh_classic"] button.playing {
+  background: #2e8b57 !important;
+  color: #ffffff !important;
+  border-color: #000000 !important;
+}
+
+body[data-skin="macintosh_classic"] select,
+body[data-skin="macintosh_classic"] .rename-input,
+body[data-skin="macintosh_classic"] .master-lufs-box {
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid #111111;
+  border-radius: 3px;
+}
+
+body[data-skin="macintosh_classic"] .track-item {
+  background: #f5f5f5;
+  color: #000000;
+  border: 1px solid #999999;
+  border-radius: 2px;
+}
+body[data-skin="macintosh_classic"] .track-item:hover {
+  background: #ffffff;
+}
+body[data-skin="macintosh_classic"] .track-item.selected {
+  background: #333399;
+  color: #ffffff;
+  border-color: #000000;
+}
+body[data-skin="macintosh_classic"] .group-header {
+  background: #cccccc;
+  color: #000000;
+  border: 1px solid #444444;
+  border-radius: 2px;
+}
+
+body[data-skin="macintosh_classic"] .pill-info,
+body[data-skin="macintosh_classic"] .pdf-link-btn {
+  background: #ffffff;
+  color: #222277;
+  border: 1px solid #333399;
+  border-radius: 3px;
+}
+body[data-skin="macintosh_classic"] .eq-tip,
+body[data-skin="macintosh_classic"] .book-quote,
+body[data-skin="macintosh_classic"] .manual-card,
+body[data-skin="macintosh_classic"] .shortcuts-box,
+body[data-skin="macintosh_classic"] .sf-tooltip,
+body[data-skin="macintosh_classic"] .drag-tooltip {
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid #000000;
+  border-radius: 3px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
+}
+body[data-skin="macintosh_classic"] .manual-card p,
+body[data-skin="macintosh_classic"] .manual-card b,
+body[data-skin="macintosh_classic"] .shortcuts-grid,
+body[data-skin="macintosh_classic"] .slider-label,
+body[data-skin="macintosh_classic"] .muted-note,
+body[data-skin="macintosh_classic"] .toolbar-label,
+body[data-skin="macintosh_classic"] .layer-toggle-item,
+body[data-skin="macintosh_classic"] .dock-popover-title,
+body[data-skin="macintosh_classic"] .group-toggle-label,
+body[data-skin="macintosh_classic"] .color-popover-header,
+body[data-skin="macintosh_classic"] .color-custom-row {
+  color: #111111;
+}
+body[data-skin="macintosh_classic"] input[type="range"] {
+  accent-color: #333399;
+}
+/* Badge EQ en lista de pistas (v0.0.7) */
+.eq-badge {
+  flex-shrink: 0;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.45);
+}
+body[data-skin="gibson_90s"] .eq-badge,
+body[data-skin="macintosh_classic"] .eq-badge {
+  background: #d1fae5;
+  color: #065f46;
+  border-color: #065f46;
+  border-radius: 2px;
 }

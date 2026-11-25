@@ -111,25 +111,87 @@ export function freqMaskingFootprint(hz) {
   return 1.58 - Math.pow(normF, 0.72) * 1.18; // ~1.58 (30Hz) .. ~0.40 (16kHz)
 }
 
-export function computePsychoRadius(item, { freqSizing = true, roleSizeFactor = 1.0 } = {}) {
+export function computePsychoRadius(item, { freqSizing = true, roleSizeFactor = 1.0, autoSize = true, lowCutScale = 1.0 } = {}) {
   const hz = yToFreq(item.y);
   const db = abletonVolToDb(item.vol);
   const clampedDb = Number.isFinite(db) ? clamp(db, DB_MIN, DB_MAX) : DB_MIN;
 
-  // Sonoridad aparente combinando nivel en dB + ponderación perceptual K-Weighting
   const apparentDb = clamp(clampedDb + kWeightDb(hz) * 0.25, DB_MIN, DB_MAX + 3);
-  const volFactor = 0.36 + ((apparentDb - DB_MIN) / (DB_SPAN + 3)) * 0.76; // 0.36 .. 1.12
+  const volFactor = 0.36 + ((apparentDb - DB_MIN) / (DB_SPAN + 3)) * 0.76;
 
-  // Huella de frecuencia física (mezclada suave con el roleSizeFactor de Gibson)
   const physFootprint = freqSizing ? (freqMaskingFootprint(hz) * 0.75 + roleSizeFactor * 0.25) : 0.85;
   const manualScale = item.sizeScale ?? 1.0;
+  const energyScale = autoSize ? (item.crestScale ?? 1.0) * clamp(lowCutScale, 0.58, 1.05) : 1.0;
 
-  return clamp(volFactor * physFootprint * manualScale, 0.18, 2.25);
+  return clamp(volFactor * physFootprint * manualScale * energyScale, 0.18, 2.45);
 }
 
 // =========================================================================
 // 5. ANALIZADOR DE ESPACIO 3D & DETECTOR DE COLISIONES ("SOLAR ECLIPSE")
 // =========================================================================
+// Conversión a Escala Bark de Zwicker (24 bandas críticas del oído humano)
+export function hzToBark(hz) {
+  const f = clamp(Number(hz) || 1000, 20, 20000);
+  return 13 * Math.atan(0.00076 * f) + 3.5 * Math.atan(Math.pow(f / 7500, 2));
+}
+
+const ROLE_CARVE_PRIORITY = {
+  lead_vox: 100,
+  kick: 95,
+  bass: 85,
+  sub_808: 85,
+  snare: 80,
+  lead_gtr: 72,
+  drums: 68,
+  rhythm_gtr_l: 55,
+  rhythm_gtr_r: 55,
+  guitar: 55,
+  piano_keys: 50,
+  tom: 48,
+  floor_tom: 48,
+  backing_vox: 42,
+  synth_pad: 38,
+  hihat: 35,
+  overhead: 35,
+  bus: 30,
+  other: 25,
+};
+
+export function pickSuggestedWinner(a, b) {
+  const pa = ROLE_CARVE_PRIORITY[a.role] ?? 25;
+  const pb = ROLE_CARVE_PRIORITY[b.role] ?? 25;
+  if (pa !== pb) return pa > pb ? a : b;
+  return (a.vol ?? 0) >= (b.vol ?? 0) ? a : b;
+}
+
+// Calcula cuánto alivio aporta un recorte Bell/Shelf ya hecho cerca del choque
+function getCarveRelief(trackA, trackB, targetHz) {
+  const targetBark = hzToBark(targetHz);
+  let relief = 0;
+  for (const t of [trackA, trackB]) {
+    if (!Array.isArray(t.eqCuts)) continue;
+    for (const cut of t.eqCuts) {
+      if (cut.gainDb >= -0.5) continue;
+      const distBark = Math.abs(hzToBark(cut.freqHz) - targetBark);
+      if (distBark < 0.95) {
+        const proximity = 1 - distBark / 0.95;
+        relief += clamp((-cut.gainDb / 6.0) * proximity * 0.72, 0, 0.75);
+      }
+    }
+  }
+  return clamp(relief, 0, 0.78);
+}
+
+// Plan agnóstico de recorte quirúrgico para abrirle lugar a `winner` dentro de `loser`
+export function computeCarvePlan(winner, loser, collision) {
+  const winnerHz = yToFreq(winner.y);
+  const avgHz = collision?.avgHz || Math.sqrt(winnerHz * yToFreq(loser.y));
+  const freqHz = Math.round(clamp(Math.sqrt(winnerHz * avgHz), 40, 14000));
+  const isLow = freqHz < 250;
+  const gainDb = isLow ? -3.5 : -2.5;
+  const q = isLow ? 0.62 : freqHz < 4000 ? 0.58 : 0.52; // Normalizado 0..1
+  return { freqHz, gainDb, q, isLow };
+}
 export function analyzeMixSpace(tracks, orbsMap, reverbDecay = 0.45, lufsTargetKey = "indie") {
   const targetCfg = LUFS_TARGETS[lufsTargetKey] || LUFS_TARGETS.indie;
   const anySolo = tracks.some((t) => t.solo);
@@ -183,31 +245,37 @@ export function analyzeMixSpace(tracks, orbsMap, reverbDecay = 0.45, lufsTargetK
     densityClass = "zone-balanced";
   }
 
-  // Detector de Enmascaramiento / Colisiones 3D ("Solar Eclipse", Visual 23, p. 48)
+  // Detector de Enmascaramiento 3D + Bandas Críticas Bark ("Solar Eclipse", Visual 23)
   const collisions = [];
   for (let i = 0; i < active.length; i++) {
     for (let j = i + 1; j < active.length; j++) {
       const a = active[i];
       const b = active[j];
 
-      // Distancia normalizada por radios de elipsoide en cada eje
       const dx = (a.pos.x - b.pos.x) / (a.rx + b.rx);
-      const dy = (a.pos.y - b.pos.y) / (a.ry + b.ry);
+      const dyGeo = Math.abs(a.pos.y - b.pos.y) / (a.ry + b.ry);
       const dz = (a.pos.z - b.pos.z) / (a.rz + b.rz);
+
+      const barkDiff = Math.abs(hzToBark(a.hz) - hzToBark(b.hz));
+      const lowerHz = Math.min(a.hz, b.hz);
+      const criticalSpan = lowerHz < 250 ? 2.4 : 1.75; // Graves enmascaran más hacia arriba
+      const dy = Math.min(dyGeo, (barkDiff / criticalSpan) * 0.85 + dyGeo * 0.15);
+
       const normDist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-      if (normDist < 0.78) {
-        // 0 = superpuestos exactos, 0.78 = rozándose
-        const rawOverlap = 1 - normDist / 0.78;
+      if (normDist < 0.70) {
+        const rawOverlap = 1 - normDist / 0.70;
         const avgHz = Math.sqrt(a.hz * b.hz);
-        const isLowMud = avgHz < 380;
-        // Enmascaramiento grave/Oohzone pesa 1.25x más (Gibson p. 49)
-        const severity = clamp(rawOverlap * (isLowMud ? 1.25 : 0.95), 0, 1);
+        const isLowMud = a.hz < 400 && b.hz < 400; // Solo barro real (ambas abajo de 400Hz)
+        const relief = getCarveRelief(a.item, b.item, avgHz);
+        const severity = clamp(rawOverlap * (isLowMud ? 1.25 : 0.95) * (1 - relief), 0, 1);
 
-        if (severity >= 0.28) {
+        if (severity >= 0.34) {
+          const suggested = pickSuggestedWinner(a.item, b.item);
           collisions.push({
             a: a.item,
             b: b.item,
+            suggestedWinnerId: suggested.id,
             severity,
             overlapPct: Math.round(severity * 100),
             avgHz,

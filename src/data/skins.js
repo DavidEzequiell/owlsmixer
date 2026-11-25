@@ -113,5 +113,81 @@ export const SKINS = {
       sphereMetalness: 0.38,
       sphereFlatShading: false,
     }
-  }
+  },
+  ableton_live: {
+    name: "Ableton Live 12 (Dark)",
+    ui: {
+      "--bg-app": "#1a1a1a",
+      "--bg-panel": "#242424",
+      "--bg-card": "#2d2d2d",
+      "--bg-card-hover": "#363636",
+      "--bg-card-selected": "#3f382e",
+      "--bg-control": "#333333",
+      "--bg-control-hover": "#404040",
+      "--border": "#141414",
+      "--border-strong": "#484848",
+      "--text-main": "#e4e4e4",
+      "--text-muted": "#9c9c9c",
+      "--accent": "#ff8c2b",
+      "--accent-hover": "#e07419",
+    },
+    scene: {
+      skyClouds: false,
+      bg: 0x161616,
+      fogDensity: 0.012,
+      boxLines: 0x454545,
+      floorMain: 0x383838,
+      floorSub: 0x242424,
+      backMain: 0x333333,
+      backSub: 0x222222,
+      centerLine: 0xff8c2b,   // Naranja clásico de Ableton
+      clusterLine: 0x52c7ff,  // Celeste selección Live
+      reverbCube: 0x52c7ff,
+      spkCab: 0x222222,
+      spkCone: 0x101010,
+      spkRim: 0xff8c2b,
+      accentLight: 0xff9a3c,
+      sphereRoughness: 0.34,  // Acabado mate técnico tipo Live
+      sphereMetalness: 0.08,
+      sphereFlatShading: false,
+    }
+  },
+  macintosh_classic: {
+    name: "Macintosh Classic (System 7 / OS 8)",
+    ui: {
+      "--bg-app": "#d2d2d2",
+      "--bg-panel": "#dddddd",
+      "--bg-card": "#eeeeee",
+      "--bg-card-hover": "#ffffff",
+      "--bg-card-selected": "#333399",
+      "--bg-control": "#e6e6e6",
+      "--bg-control-hover": "#ffffff",
+      "--border": "#8c8c8c",
+      "--border-strong": "#111111",
+      "--text-main": "#000000",
+      "--text-muted": "#3a3a3a",
+      "--accent": "#333399",
+      "--accent-hover": "#222277",
+    },
+    scene: {
+      skyClouds: false,
+      bg: 0x5d6d85,          // Fondo clásico azul-gris Mac OS 8 Platinum
+      fogDensity: 0.005,
+      boxLines: 0x1a1a1a,
+      floorMain: 0xdbe2ec,
+      floorSub: 0x455368,
+      backMain: 0xdbe2ec,
+      backSub: 0x455368,
+      centerLine: 0xccccff,
+      clusterLine: 0x222277,
+      reverbCube: 0x818cf8,
+      spkCab: 0xd6d1c4,      // Beige clásico Macintosh
+      spkCone: 0x222222,
+      spkRim: 0x555555,
+      accentLight: 0xf4f6ff,
+      sphereRoughness: 0.28,
+      sphereMetalness: 0.06,
+      sphereFlatShading: false,
+    }
+  },
 };
