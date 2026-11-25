@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Owls 3D Mixer v3.1 — The Art of Mixing for Ableton</title>
-  <link rel="stylesheet" href="./styles.css" />
+  <title>Owls 3D Mixer — The Art of Mixing for Ableton</title>
+  <link rel="stylesheet" href="./styles.css?v=35" />
   <script type="importmap">
     {
       "imports": {
@@ -15,55 +15,128 @@
   </script>
 </head>
 <body>
+  <!-- Spinner Bloqueante Global -->
+  <div id="loading-overlay" class="loading-overlay">
+    <div class="loading-box">
+      <div class="spinner"></div>
+      <div id="loading-text" class="loading-text">Conectando con Ableton Live...</div>
+    </div>
+  </div>
+
   <!-- Viewport 3D -->
   <div id="viewport">
+    <!-- BARRA SUPERIOR: Zonas separadas por responsabilidad -->
     <div class="hud-top">
-      <div class="badge">
-        <span id="status-dot" class="dot"></span>
-        <span id="status-text">Conectando a Ableton...</span>
+      <!-- ZONA 1: Transporte & Estado DAW -->
+      <div class="toolbar-pill" aria-label="Transporte DAW">
+        <span class="status-cluster">
+          <span id="status-dot" class="dot"></span>
+          <span id="status-text">Conectando...</span>
+        </span>
+        <span class="pill-sep"></span>
+        <button id="btn-play" class="btn-ghost" title="Play / Pause (Space)">▶ Play</button>
+        <button id="btn-rescan" class="btn-icon" title="Re-escanear pistas y Return A">↻</button>
+        <span class="pill-sep"></span>
+        <button id="btn-undo" class="btn-icon" title="Deshacer (Ctrl+Z)" disabled>↶</button>
+        <button id="btn-redo" class="btn-icon" title="Rehacer (Ctrl+Y)" disabled>↷</button>
       </div>
-      <button id="btn-play" title="Play / Pause (Space)">▶ Play</button>
-      <button id="btn-rescan" title="Volver a leer pistas y Return A">↻</button>
-      <button id="btn-undo" title="Deshacer (Ctrl+Z)" disabled>↶</button>
-      <button id="btn-redo" title="Rehacer (Ctrl+Y)" disabled>↷</button>
 
-      <div class="btn-group">
+      <div class="hud-spacer"></div>
+
+      <!-- ZONA 2A: Presets -->
+      <div class="toolbar-pill" aria-label="Presets">
+        <button id="btn-open-presets" class="primary">🎛 Presets</button>
+      </div>
+
+      <!-- ZONA 2B: Acciones de Mix / Snapshots -->
+      <div class="toolbar-pill" aria-label="Acciones de Mix">
+        <button id="btn-save-mix" class="btn-ghost" title="Guardar Snapshot del Mix (.json)">💾 Guardar</button>
+        <button id="btn-load-mix" class="btn-ghost" title="Cargar Snapshot del Mix (.json)">📂 Cargar</button>
+        <input id="file-load-mix" type="file" accept=".json" class="hidden" />
+      </div>
+
+      <!-- ZONA 2C: Skins & Configuración de la App -->
+      <div class="toolbar-pill" aria-label="Apariencia y Opciones">
+        <span class="toolbar-label">Skin</span>
+        <select id="skin-select" title="Cambiar skin visual"></select>
+        <span class="pill-sep"></span>
+        <button id="btn-settings" class="btn-ghost" title="Opciones y Guía del libro">⚙ Opciones</button>
+      </div>
+    </div>
+
+    <div id="eq-banner" class="eq-banner hidden"></div>
+
+    <!-- ZONA 3 (Dock Inferior Central): Controles exclusivos del Render 3D -->
+    <div class="render-dock" aria-label="Controles del Render 3D">
+      <div class="segmented" id="view-mode-switch" title="Alternar entre Mix 3D y EQ Window (Tecla E)">
+        <button data-view="mix" class="active">Mix 3D</button>
+        <button data-view="eq">EQ Window</button>
+      </div>
+      <span class="pill-sep"></span>
+      <span class="toolbar-label">Cámara</span>
+      <div class="segmented">
         <button data-cam="iso">3D</button>
         <button data-cam="front">Frente</button>
         <button data-cam="top">Arriba</button>
       </div>
+      <span class="pill-sep"></span>
+      <button id="btn-zmode" class="btn-ghost">Eje Z: Volumen</button>
+      <span class="help-icon" data-help="Modo Gibson (p. 40 y 304): Arrastrar adelante/atrás controla Volumen (6 niveles) y la rueda controla Reverb Send A. Modo Espacial invierte ambos.">?</span>
+      <span class="pill-sep"></span>
+      <button id="btn-quick-reverb" class="btn-toggle active" title="Mostrar/ocultar cubos translúcidos de Reverb en el 3D">Cubos Reverb</button>
+      <button id="btn-quick-levels" class="btn-toggle active" title="Mostrar/ocultar franjas VOL LVL 1-6 en el piso">Niveles Piso</button>
+      <button id="btn-quick-collisions" class="btn-toggle active" title="Mostrar/ocultar alertas 3D de enmascaramiento (Solar Eclipse)">Choques</button>
 
-      <button id="btn-open-presets" class="primary">🎛 Presets</button>
-      <button id="btn-zmode">Eje Z: Volumen</button>
-      <span class="help-icon" data-help="Modo Gibson (p. 40 y 304): Arrastrar adelante/atrás controla el Volumen (6 niveles en el piso) y la rueda controla Reverb Send A. Modo Espacial invierte ambos.">?</span>
-
-      <div class="hud-spacer"></div>
-
-      <div class="badge skin-wrap">
-        <span>Skin:</span>
-        <select id="skin-select"></select>
-      </div>
-      <button id="btn-save-mix" title="Exportar Mix Snapshot (JSON)">💾</button>
-      <button id="btn-load-mix" title="Cargar Mix Snapshot (JSON)">📂</button>
-      <input id="file-load-mix" type="file" accept=".json" class="hidden" />
-      <button id="btn-settings" title="Opciones y Guía">⚙</button>
     </div>
 
-    <div class="hud-help" id="hud-help"></div>
+    <!-- ZONA 4 (Inferior Izquierda): Atajos plegables -->
+    <div class="shortcuts-corner">
+      <div class="hud-help hidden" id="hud-help"></div>
+      <button id="btn-toggle-shortcuts" class="toolbar-pill shortcuts-btn">⌨ Atajos</button>
+    </div>
   </div>
 
   <!-- Handle redimensionable de la Sidebar -->
   <div id="sidebar-resizer" title="Arrastrá para cambiar el ancho del panel"></div>
 
-  <!-- Sidebar Derecha (limpia y colapsable) -->
+  <!-- Sidebar Derecha (Solo controles de Mezcla) -->
   <aside id="sidebar">
-    <!-- Return A Reverb (Colapsable + Checkbox ocultar en 3D) -->
+    <!-- Analizador Psicoacústico: LUFS, Espacio 3D y Enmascaramiento (US-08) -->
+    <div class="panel-section collapsible-section" data-section="psycho" id="psycho-panel">
+      <div class="panel-title clickable-title">
+        <span><span class="sec-arrow">▼</span> Espacio &amp; LUFS (US-08)</span>
+        <div class="title-right" onclick="event.stopPropagation()">
+          <span id="badge-density-zone" class="pill-info zone-sparse">Sparse</span>
+          <span class="help-icon" data-help="Calcula el volumen real ocupado en la caja 3D (esferas + elipsoides + cubos de reverb) según tu objetivo de LUFS, mide el Master Short-Term (3s) y detecta colisiones de enmascaramiento (Solar Eclipse, Visual 23).">?</span>
+        </div>
+      </div>
+      <div class="section-body">
+        <div class="psycho-top-row">
+          <select id="sel-lufs-target" title="Objetivo de sonoridad y densidad de mezcla"></select>
+          <div class="master-lufs-box">
+            <span id="val-master-lufs">-- LUFS</span>
+            <span id="badge-clip" class="clip-badge hidden">CLIP</span>
+          </div>
+        </div>
+
+        <div class="space-meter-wrap">
+          <div class="slider-label">
+            <span>Ocupación de la Caja: <b id="val-space-pct">0%</b></span>
+            <span>Low-End (&lt;250Hz): <b id="val-lowend-pct">0%</b></span>
+          </div>
+          <div class="space-bar"><div id="bar-space-fill" class="space-bar-fill zone-sparse"></div></div>
+        </div>
+
+        <div id="collision-list" class="collision-list"></div>
+      </div>
+    </div>
+    <!-- Return A Reverb -->
     <div class="panel-section collapsible-section" data-section="reverb">
       <div class="panel-title clickable-title">
         <span><span class="sec-arrow">▼</span> Return A · Reverb 3D</span>
         <div class="title-right" onclick="event.stopPropagation()">
           <span id="reverb-device-name" class="pill-info">Buscando...</span>
-          <span class="help-icon" data-help="Detecta automáticamente la Reverb en Return A de Ableton (o plugins compatibles por Adapter). Decay escala el tamaño del cubo de Reverb en 3D; Pre-Delay separa la señal seca de la cola (Visual 103).">?</span>
+          <span class="help-icon" data-help="Controla la Reverb en Return A de Ableton (o plugins compatibles por Adapter). Decay escala el tamaño del cubo 3D; Pre-Delay separa voz seca y cola (Visual 103).">?</span>
         </div>
       </div>
       <div class="section-body">
@@ -80,12 +153,12 @@
         <label class="group-toggle-label" style="margin-top:6px;">
           <input id="chk-hide-reverb-3d" type="checkbox" />
           Ocultar efectos de retorno (cubos Reverb) en el 3D
-          <span class="help-icon" data-help="Oculta visualmente los cubos translúcidos de Reverb (Visual 36) para despejar el mapa 3D cuando solo querés ver las esferas. No apaga la reverb en Ableton.">?</span>
+          <span class="help-icon" data-help="Oculta visualmente los cubos translúcidos de Reverb (Visual 36) para despejar el mapa 3D. No apaga la reverb en Ableton.">?</span>
         </label>
       </div>
     </div>
 
-    <!-- Grupos (Colapsable) -->
+    <!-- Grupos -->
     <div class="panel-section collapsible-section" data-section="groups">
       <div class="panel-title clickable-title">
         <span><span class="sec-arrow">▼</span> Grupos &amp; Conjunto</span>
@@ -99,12 +172,12 @@
         <label class="group-toggle-label">
           <input id="chk-show-buses" type="checkbox" checked />
           Mostrar Buses de Ableton como esferas
-          <span class="help-icon" data-help="En Ableton, cuando agrupás pistas (Ctrl+G), el Grupo en sí también es una pista Bus con su propio volumen y paneo. Si destildás esto, ocultás la esfera del Bus y ves solo los instrumentos individuales.">?</span>
+          <span class="help-icon" data-help="En Ableton, un Grupo (Ctrl+G) también es un canal Bus con su propio fader. Destildá esto para ocultar las esferas de los Buses y ver solo las pistas individuales.">?</span>
         </label>
       </div>
     </div>
 
-    <!-- Inspector (Colapsable) -->
+    <!-- Inspector -->
     <div class="panel-section collapsible-section" data-section="inspector" id="inspector">
       <div class="panel-title clickable-title">
         <span><span class="sec-arrow">▼</span> <span id="insp-name">Seleccioná una esfera</span></span>
@@ -114,6 +187,17 @@
       <div class="section-body">
         <!-- 1 pista -->
         <div id="inspector-single">
+          <!-- Selector de Color sincronizado con Ableton -->
+          <div class="color-section" id="color-section">
+            <span class="slider-label" style="margin-bottom:4px;">
+              <span>Color (DAW + 3D)
+                <span class="help-icon" data-help="Cambia el color de la esfera en el 3D y de la pista real en Ableton Live (Live ajusta automáticamente al color más cercano de su paleta).">?</span>
+              </span>
+              <input id="inp-custom-color" type="color" class="custom-color-inp" title="Elegir color personalizado" disabled />
+            </span>
+            <div id="color-swatches" class="color-swatches"></div>
+          </div>
+
           <div class="two-col-sliders">
             <div class="slider-group">
               <div class="slider-label"><span>Paneo (X)</span><span id="val-pan">C</span></div>
@@ -133,10 +217,10 @@
             </div>
           </div>
 
-          <div class="slider-group" style="margin-top:5px;">
+          <div class="slider-group" style="margin-top:6px;">
             <div class="slider-label">
               <span>Tamaño visual esfera
-                <span class="help-icon" data-help="En el Virtual Mixer de Gibson, el tamaño indica cuánto espacio enmascara el sonido según su rango de frecuencias. Podés ajustarlo manualmente acá si querés una esfera más grande o más chica.">?</span>
+                <span class="help-icon" data-help="En el Virtual Mixer de Gibson, el tamaño refleja cuánto espacio enmascara el sonido. Podés ajustarlo manualmente acá.">?</span>
               </span>
               <span id="val-size">1.00x</span>
             </div>
@@ -147,7 +231,12 @@
             <button id="btn-toggle-shape" class="mini-btn" disabled>Forma: Esfera</button>
             <span class="help-icon" data-help="Esfera = sonido mono puntual. Elipsoide = sonido estéreo ancho o con Fattening (<30ms, Visual 29).">?</span>
             <button id="btn-toggle-lock" class="mini-btn" disabled>🔓 Libre</button>
-            <span class="help-icon" data-help="Bloquear impide mover la esfera por error en el 3D y protege la pista cuando aplicás un Preset.">?</span>
+            <span class="help-icon" data-help="Bloquear impide mover la esfera por error en el 3D y protege la pista al aplicar Presets.">?</span>
+          </div>
+          <div class="row" style="margin-top:6px;">
+            <button id="btn-quick-eq" class="mini-btn primary-soft" disabled>⚡ Quick EQ Gibson</button>
+            <span class="help-icon" data-help="Aplica al EQ Eight de Ableton la curva base recomendada por David Gibson (Chart 5/6) para el rol de esta pista. Compatible con Ctrl+Z.">?</span>
+            <button id="btn-open-eq-win" class="mini-btn" disabled>🎛️ EQ Window</button>
           </div>
           <div id="eq-tip-box" class="eq-tip hidden"></div>
         </div>
@@ -170,7 +259,7 @@
             <div class="slider-group">
               <div class="slider-label">
                 <span>Spread
-                  <span class="help-icon" data-help="Abre (hasta 200%) o cierra (0% = mono al centro del grupo) el paneo relativo de todas las pistas seleccionadas.">?</span>
+                  <span class="help-icon" data-help="Abre (200%) o cierra (0% = mono al centro del grupo) el paneo relativo de las pistas seleccionadas.">?</span>
                 </span>
                 <span id="val-grp-spread">100%</span>
               </div>
@@ -181,7 +270,7 @@
       </div>
     </div>
 
-    <!-- Lista de pistas (ahora con mucho espacio vertical!) -->
+    <!-- Lista de pistas -->
     <div class="panel-section" style="padding:7px 12px 5px; border-bottom:none;">
       <div class="panel-title" style="margin-bottom:0;">
         <span>Pistas &amp; Roles <span class="help-icon" data-help="Doble clic en el nombre para renombrar en Ableton. Arrastrá cualquier pista sobre un Grupo Virtual para agruparla. 👁 oculta del 3D, 🔒 bloquea contra misclicks.">?</span></span>
@@ -202,8 +291,8 @@
         <select id="preset-select"></select>
       </div>
       <div class="preset-meta-bar">
-        <button id="btn-open-pdf-ref" class="pdf-link-btn" title="Abrir página exacta del PDF de The Art of Mixing">📖 <span id="preset-ref-badge">Visual G</span></button>
-        <span class="help-icon" data-help="Abre el PDF de 'The Art of Mixing' (guardado en owls-mixer/assets/art_of_mixing.pdf) exactamente en la página del diagrama de este preset.">?</span>
+        <button id="btn-open-pdf-ref" class="pdf-link-btn" title="Abrir página exacta del PDF">📖 <span id="preset-ref-badge">Visual G</span></button>
+        <span class="help-icon" data-help="Abre el PDF (guardado en owls-mixer/assets/art_of_mixing.pdf) exactamente en la página del diagrama de este preset.">?</span>
       </div>
       <p id="preset-desc" class="muted-note"></p>
       <div id="preset-preview-roles" class="preset-roles-preview"></div>
@@ -224,7 +313,7 @@
         </div>
       </div>
       <div class="pdf-hint-bar">
-        Static Resource: <code>owls-mixer/assets/art_of_mixing.pdf</code> — si no carga abajo, copiá tu PDF en esa ruta con ese nombre.
+       Static Resource: <code>owlsmixer/assets/art_of_mixing.pdf</code> — si no carga abajo, copiá tu PDF en esa ruta con ese nombre.
       </div>
       <iframe id="pdf-iframe" class="pdf-frame" src="about:blank"></iframe>
     </div>
@@ -312,7 +401,7 @@
     </div>
   </div>
 
-  <!-- Portal global para HelpTexts estilo Salesforce (nunca se recorta) -->
+  <!-- Portal global para HelpTexts estilo Salesforce (?) -->
   <div id="sf-tooltip-portal" class="sf-tooltip hidden"></div>
 
   <script type="module" src="./src/main.js"></script>

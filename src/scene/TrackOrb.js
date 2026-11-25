@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { ROLES } from "../data/roles.js";
 import { store, HALF_H, clamp, panToX, volToZ, sendToZ } from "../store.js";
+import { computePsychoRadius } from "../engine/psychoacoustics.js";
 
 export function makeTextSprite(text, textColor = "#ffffff", fontSize = 24, withBg = true) {
   const canvas = document.createElement("canvas");
@@ -144,19 +145,27 @@ export class TrackOrb {
     this.reverbWire.material.color.setHex(skinScene.reverbCube);
   }
 
-  getBaseRadius() {
-    const { settings } = store;
-    const roleCfg = ROLES[this.item.role] || ROLES.other;
-    const freqFactor = settings.freqSizing ? roleCfg.sizeFactor : 1.0;
-    const volFactor = 0.28 + clamp(this.item.vol, 0, 1) * 0.56;
-    const manualScale = this.item.sizeScale ?? 1.0;
-    return clamp(volFactor * freqFactor * manualScale, 0.18, 2.3);
+  updateColor(hex) {
+    const col = new THREE.Color(hex);
+    this.mesh.material.color.copy(col);
+    this.mesh.material.emissive.copy(col);
+    this.dropLine.material.color.copy(col);
+    this.ring.material.color.copy(col);
+    if (this.busOrbit) this.busOrbit.material.color.copy(col);
   }
 
-  sync(camera) {
+  getBaseRadius() {
+    const roleCfg = ROLES[this.item.role] || ROLES.other;
+    return computePsychoRadius(this.item, {
+      freqSizing: store.settings.freqSizing,
+      roleSizeFactor: roleCfg.sizeFactor,
+    });
+  }
+
+sync(camera) {
     const item = this.item;
     const { settings } = store;
-    const visible = !item.hidden && !(item.isGroup && !store.showBuses);
+    const visible = store.viewMode === "mix" && !item.hidden && !(item.isGroup && !store.showBuses);
     this.group.visible = visible;
     if (!visible) return;
 

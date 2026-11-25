@@ -75,5 +75,43 @@ export const SKINS = {
       sphereMetalness: 0.05,
       sphereFlatShading: false,
     }
+  },
+  winamp_classic: {
+    name: "Winamp 2.91 Classic (LCD)",
+    ui: {
+      "--bg-app": "#090c10",
+      "--bg-panel": "#232734",
+      "--bg-card": "#161a22",
+      "--bg-card-hover": "#1f2532",
+      "--bg-card-selected": "#072613",
+      "--bg-control": "#2e3444",
+      "--bg-control-hover": "#3b4256",
+      "--border": "#3f4659",
+      "--border-strong": "#5a637a",
+      "--text-main": "#dce6f2",
+      "--text-muted": "#8fa0b5",
+      "--accent": "#00ff41",
+      "--accent-hover": "#00c835",
+    },
+    scene: {
+      skyClouds: false,
+      bg: 0x05080a,
+      fogDensity: 0.015,
+      boxLines: 0x00ff41,
+      floorMain: 0x00c835,
+      floorSub: 0x0b2e16,
+      backMain: 0x00aa2e,
+      backSub: 0x082311,
+      centerLine: 0xf5b700,   // Franja dorada clásica de Winamp
+      clusterLine: 0x00ff41,
+      reverbCube: 0x00e5ff,
+      spkCab: 0x262b38,
+      spkCone: 0x080a0e,
+      spkRim: 0x00ff41,
+      accentLight: 0x00ff41,
+      sphereRoughness: 0.18,
+      sphereMetalness: 0.38,
+      sphereFlatShading: false,
+    }
   }
 };

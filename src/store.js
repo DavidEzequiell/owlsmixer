@@ -1,29 +1,27 @@
 import { SKINS } from "./data/skins.js";
+import {
+  HALF_W, HALF_H, HALF_D, clamp,
+  abletonVolToDb, dbToAbletonVol,
+  volToZLog, zToVolLog,
+  freqToY, yToFreq, formatFreq, getApparentVolumeLevel,
+} from "./engine/psychoacoustics.js";
 
-export const HALF_W = 5; // X: -5 (L) .. +5 (R)
-export const HALF_H = 3; // Y: -3 (Low) .. +3 (High)
-export const HALF_D = 4; // Z: +4 (Front) .. -4 (Back)
+export {
+  HALF_W, HALF_H, HALF_D, clamp,
+  abletonVolToDb, dbToAbletonVol,
+  freqToY, yToFreq, formatFreq, getApparentVolumeLevel,
+};
 
-export const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-
-// Conversiones de coordenadas
 export const panToX = (pan) => clamp(pan, -1, 1) * HALF_W;
 export const xToPan = (x) => clamp(x / HALF_W, -1, 1);
 
-// Modo Gibson: Z = Volumen Aparente (+4 frente LVL 1 .. -4 fondo LVL 6)
-export const volToZ = (vol) => -HALF_D + clamp(vol, 0, 1) * (HALF_D * 2);
-export const zToVol = (z) => clamp((z + HALF_D) / (HALF_D * 2), 0, 1);
+// Modo Gibson: ahora usa Escala Logarítmica Real en dB (-36 dB .. +6 dB)!
+export const volToZ = (vol) => volToZLog(vol);
+export const zToVol = (z) => zToVolLog(z);
 
-// Modo Espacial: Z = Send A Reverb (+4 frente seco .. -4 fondo húmedo)
+// Modo Espacial: Z = Send A Reverb (+4 seco .. -4 húmedo)
 export const sendToZ = (send) => HALF_D - clamp(send, 0, 1) * (HALF_D * 2);
 export const zToSend = (z) => clamp((HALF_D - z) / (HALF_D * 2), 0, 1);
-
-// Conversión fiel a la curva de fader de Ableton Live (0.85 ≈ 0.0 dB, 1.0 = +6 dB)
-export function abletonVolToDb(v) {
-  if (v <= 0.0005) return -Infinity;
-  if (v >= 0.85) return ((v - 0.85) / 0.15) * 6.0;
-  return 20 * Math.log10(Math.pow(v / 0.85, 2.35));
-}
 
 export function formatVolume(v, unit = "db") {
   if (unit === "pct") return `${Math.round(clamp(v, 0, 1) * 100)}%`;
@@ -38,13 +36,15 @@ export function formatPan(pan) {
 }
 
 const DEFAULT_SETTINGS = {
-  volUnit: "db",            // "db" | "pct"
-  zMode: "gibson",          // "gibson" (Z=Vol) | "spatial" (Z=SendA)
+  volUnit: "db",
+  zMode: "gibson",
   showReverbCubes: true,
   showVolLevels: true,
   showFreqBands: true,
   showEqTips: true,
   freqSizing: true,
+  showCollisions: true,    // Nuevo: Detector Solar Eclipse en 3D
+  lufsTarget: "indie",     // Nuevo: streaming | indie | heavy | acoustic
   skin: "gibson_dark",
 };
 
@@ -63,14 +63,13 @@ class Store extends EventTarget {
   constructor() {
     super();
     this.tracks = [];
-    this.virtualGroups = []; // [{ id, name, color }]
+    this.virtualGroups = [];
     this.collapsedGroups = new Set();
     this.selectedIds = new Set();
     this.isPlaying = false;
     this.showBuses = true;
     this.settings = loadSettings();
 
-    // Info de Return A Reverb (poblado por abletonService + deviceAdapters)
     this.reverbInfo = {
       connected: false,
       deviceName: "Sin Return A",
@@ -81,7 +80,24 @@ class Store extends EventTarget {
       predelayParam: null,
     };
 
-    // Undo / Redo History Stack
+    this.viewMode = "mix"; // "mix" | "eq"
+
+    // Telemetría Master & Análisis Psicoacústico (US-08)
+    this.masterStats = {
+      connected: false,
+      shortTermLufs: -Infinity,
+      peakDb: -Infinity,
+      clipping: false,
+    };
+    this.mixAnalysis = {
+      occupancyPct: 0,
+      lowEndPct: 0,
+      densityZone: "Sparse",
+      densityClass: "zone-sparse",
+      activeCount: 0,
+      collisions: [],
+    };
+
     this.undoStack = [];
     this.redoStack = [];
     this.MAX_HISTORY = 40;
@@ -115,6 +131,12 @@ class Store extends EventTarget {
     this.selectedIds = new Set(ids.map(String));
     this.emit("selection");
   }
+  setViewMode(mode) {
+    const next = mode === "eq" ? "eq" : "mix";
+    if (this.viewMode === next) return;
+    this.viewMode = next;
+    this.emit("view-mode", next);
+  }
 
   toggleInSelection(id) {
     const sid = String(id);
@@ -123,7 +145,6 @@ class Store extends EventTarget {
     this.emit("selection");
   }
 
-  // Captura estado plano de la mezcla (para Undo/Redo y Exportar Mix JSON)
   captureSnapshot() {
     return {
       virtualGroups: this.virtualGroups.map((g) => ({ ...g })),
@@ -131,6 +152,7 @@ class Store extends EventTarget {
         id: t.id,
         index: t.index,
         name: t.name,
+        colorHex: t.colorHex,
         pan: t.pan,
         vol: t.vol,
         sendA: t.sendA,
@@ -141,8 +163,18 @@ class Store extends EventTarget {
         shape: t.shape,
         sizeScale: t.sizeScale ?? 1.0,
         hidden: t.hidden,
-        locked: t.locked,
+         locked: t.locked,
         vGroupId: t.vGroupId,
+        eqBands: t.eq?.bound
+          ? t.eq.bands.map((b) => ({
+              bandNum: b.bandNum,
+              on: b.on,
+              type: b.type,
+              freqHz: b.freqHz,
+              gainDb: b.gainDb,
+              q: b.q,
+            }))
+          : null,
       })),
     };
   }
@@ -206,7 +238,7 @@ class Store extends EventTarget {
   buildExportPayload() {
     return {
       app: "Owls3DMixer",
-      version: 3,
+      version: "0.0.5",
       projectTitle: "Mix by OwlsMixer3D",
       exportedAt: new Date().toISOString(),
       settings: this.settings,

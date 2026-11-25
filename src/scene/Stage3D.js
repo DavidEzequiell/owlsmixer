@@ -3,6 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { SKINS } from "../data/skins.js";
 import { store, HALF_W, HALF_H, HALF_D } from "../store.js";
 import { TrackOrb, makeTextSprite } from "./TrackOrb.js";
+import { EqWindow3D } from "./EqWindow3D.js";
 
 const CAM_VIEWS = {
   iso:   { pos: [0, 4.4, 13.8], target: [0, -0.1, 0] },
@@ -45,6 +46,9 @@ export class Stage3D {
     this.buildStage(skin.scene);
     this.buildRetro90sSkyRoom();
     this.buildClusterVisuals(skin.scene);
+
+    this.savedMixCam = null;
+    this.eqWindow = new EqWindow3D(this.scene);
 
     window.addEventListener("resize", () => this.resize());
     this.startLoop();
@@ -108,8 +112,8 @@ export class Stage3D {
     const sideTex = this.createCloudsTexture(false);
     const backTex = this.createCloudsTexture(true);
 
-    const sideMat = new THREE.MeshBasicMaterial({ map: sideTex, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
-    const backMat = new THREE.MeshBasicMaterial({ map: backTex, side: THREE.DoubleSide });
+    const sideMat = new THREE.MeshBasicMaterial({ map: sideTex, side: THREE.FrontSide, transparent: true, opacity: 0.92 });
+    const backMat = new THREE.MeshBasicMaterial({ map: backTex, side: THREE.FrontSide });
 
     // Pared trasera (horizonte amarillo)
     const backWall = new THREE.Mesh(new THREE.PlaneGeometry(HALF_W * 2, HALF_H * 2), backMat);
@@ -146,7 +150,7 @@ export class Stage3D {
     fctx.fillRect(0, 0, 512, 512);
     const floorBase = new THREE.Mesh(
       new THREE.PlaneGeometry(HALF_W * 2, HALF_D * 2),
-      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(fCanvas), side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(fCanvas), side: THREE.FrontSide })
     );
     floorBase.rotation.x = -Math.PI / 2;
     floorBase.position.y = -HALF_H - 0.015;
@@ -164,12 +168,12 @@ export class Stage3D {
     const ctx = canvas.getContext("2d");
 
     const levels = [
-      "VOL LVL 6 · Subliminal / Whispers",
-      "VOL LVL 5 · Distant FX / Background",
-      "VOL LVL 4 · Rhythm Beds / Pads / BGV",
-      "VOL LVL 3 · Main Rhythm / Rock Vox",
-      "VOL LVL 2 · Lead Vocals / Lead Inst",
-      "VOL LVL 1 · Extreme Front / Explosions",
+      "VOL LVL 6 (-36 a -29 dB) · Subliminal / Whispers",
+      "VOL LVL 5 (-29 a -22 dB) · Distant FX / Fondo",
+      "VOL LVL 4 (-22 a -15 dB) · Pads / Camas / Alt Vox",
+      "VOL LVL 3 (-15 a -8 dB) · Base Rítmica / Rock Vox",
+      "VOL LVL 2 (-8 a -1 dB) · Lead Vocals / Solos",
+      "VOL LVL 1 (-1 a +6 dB) · Frente Extremo / 808",
     ];
     const rowH = canvas.height / 6;
 
@@ -278,7 +282,8 @@ export class Stage3D {
       new THREE.Vector3(0, -HALF_H, -HALF_D),
     ]);
     this.stageRefs.centerLineMat = new THREE.LineBasicMaterial({ color: s.centerLine, opacity: 0.5, transparent: true });
-    this.scene.add(new THREE.Line(centerGeo, this.stageRefs.centerLineMat));
+    this.stageRefs.centerLine = new THREE.Line(centerGeo, this.stageRefs.centerLineMat);
+    this.scene.add(this.stageRefs.centerLine);
 
     this.stageRefs.spkCabMat = new THREE.MeshStandardMaterial({ color: s.spkCab, roughness: 0.55, metalness: 0.25 });
     this.stageRefs.spkConeMat = new THREE.MeshStandardMaterial({ color: s.spkCone, roughness: 0.4 });
@@ -324,6 +329,14 @@ export class Stage3D {
     );
     this.centroidMarker.visible = false;
     this.scene.add(this.centroidMarker);
+    // Detector visual de colisiones / enmascaramiento ("Solar Eclipse", Visual 23)
+    this.collisionLineMat = new THREE.LineBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.85 });
+    this.collisionLines = new THREE.LineSegments(new THREE.BufferGeometry(), this.collisionLineMat);
+    this.collisionLines.visible = false;
+    this.scene.add(this.collisionLines);
+
+    this.collisionMarkers = new THREE.Group();
+    this.scene.add(this.collisionMarkers);
   }
 
   applySkin(skinKey) {
@@ -352,11 +365,39 @@ export class Stage3D {
   }
 
   applyStageSettings() {
-    this.stageRefs.floorLevels.visible = store.settings.showVolLevels;
-    this.stageRefs.freqBands.visible = store.settings.showFreqBands;
+    const isMix = store.viewMode === "mix";
+    this.stageRefs.floorLevels.visible = isMix && store.settings.showVolLevels;
+    this.stageRefs.freqBands.visible = isMix && store.settings.showFreqBands;
+    if (this.stageRefs.centerLine) this.stageRefs.centerLine.visible = isMix;
     this.updateAllOrbs();
   }
 
+  applyViewMode(mode) {
+    const isEq = mode === "eq";
+    this.eqWindow.group.visible = isEq;
+
+    if (isEq) {
+      this.savedMixCam = {
+        pos: this.camera.position.clone(),
+        target: this.controls.target.clone(),
+      };
+      this.camera.position.set(0, 0, 12.6);
+      this.controls.target.set(0, 0, 0);
+      this.controls.enableRotate = false;
+      this.controls.update();
+    } else {
+      this.controls.enableRotate = true;
+      if (this.savedMixCam) {
+        this.camera.position.copy(this.savedMixCam.pos);
+        this.controls.target.copy(this.savedMixCam.target);
+        this.controls.update();
+      }
+    }
+
+    this.applyStageSettings();
+    this.updateCollisions(store.mixAnalysis?.collisions || []);
+    this.eqWindow.sync();
+  }
   rebuildOrbs() {
     this.orbs.forEach((orb) => {
       this.scene.remove(orb.group);
@@ -386,13 +427,24 @@ export class Stage3D {
       orb.sync(this.camera);
     }
   }
+  updateOrbColor(item) {
+    const orb = this.orbs.get(item.id);
+    if (orb) orb.updateColor(item.colorHex);
+  }
 
   updateAllOrbs() {
     this.orbs.forEach((orb) => orb.sync(this.camera));
     this.updateCluster();
+    if (store.viewMode === "eq") this.eqWindow.sync();
   }
 
-  updateCluster() {
+   updateCluster() {
+    if (store.viewMode !== "mix") {
+      this.clusterLines.visible = false;
+      this.centroidMarker.visible = false;
+      return;
+    }
+
     const selOrbs = store
       .getSelectedTracks()
       .map((t) => this.orbs.get(t.id))
@@ -423,6 +475,42 @@ export class Stage3D {
     this.centroidMarker.visible = true;
   }
 
+
+  updateCollisions(collisions = []) {
+    while (this.collisionMarkers.children.length > 0) {
+      const m = this.collisionMarkers.children[0];
+      m.geometry.dispose();
+      m.material.dispose();
+      this.collisionMarkers.remove(m);
+    }
+
+    if (store.viewMode !== "mix" || !store.settings.showCollisions || collisions.length === 0) {
+      this.collisionLines.visible = false;
+      this.collisionMarkers.visible = false;
+      return;
+    }
+
+    const pts = [];
+    collisions.forEach((c) => {
+      pts.push(c.posA.x, c.posA.y, c.posA.z, c.posB.x, c.posB.y, c.posB.z);
+      const mid = c.posA.clone().add(c.posB).multiplyScalar(0.5);
+      const colHex = c.isLowMud ? 0xef4444 : 0xf59e0b;
+      const marker = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.14 + c.severity * 0.14, 0),
+        new THREE.MeshBasicMaterial({ color: colHex, wireframe: true, transparent: true, opacity: 0.9 })
+      );
+      marker.position.copy(mid);
+      this.collisionMarkers.add(marker);
+    });
+
+    this.collisionLines.geometry.dispose();
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
+    this.collisionLines.geometry = geo;
+    this.collisionLines.visible = true;
+    this.collisionMarkers.visible = true;
+  }
+
   getPickableMeshes() {
     const list = [];
     this.orbs.forEach((orb) => {
@@ -450,6 +538,14 @@ export class Stage3D {
       requestAnimationFrame(tick);
       this.controls.update();
       if (this.centroidMarker.visible) this.centroidMarker.rotation.y += 0.02;
+
+      if (this.collisionMarkers.visible && this.collisionMarkers.children.length > 0) {
+        const pulse = 1 + Math.sin(performance.now() * 0.007) * 0.18;
+        this.collisionMarkers.children.forEach((m) => {
+          m.rotation.y -= 0.03;
+          m.scale.setScalar(pulse);
+        });
+      }
 
       for (const item of store.tracks) {
         item.smoothMeter += (item.meter - item.smoothMeter) * 0.25;
