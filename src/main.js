@@ -188,12 +188,14 @@ new Interaction3D(stage, {
   onUndo: performUndo,
   onRedo: performRedo,
   onEscape: () => {
-    if (hud.hasOpenPopover()) hud.closePopovers();
+    if (sidebar.isColorPopoverOpen()) sidebar.closeColorPopover();
+    else if (hud.hasOpenPopover()) hud.closePopovers();
     else if (presetsModal.isPdfOpen()) presetsModal.closePdf();
     else if (settingsModal.isOpen()) settingsModal.close();
     else if (presetsModal.isOpen()) presetsModal.close();
     else store.setSelection([]);
   },
+
 });
 
 

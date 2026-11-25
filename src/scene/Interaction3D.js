@@ -239,35 +239,40 @@ export class Interaction3D {
 
       if (this.raycaster.ray.intersectPlane(this.dragPlane, this.dragHit)) {
         const delta = this.dragHit.clone().sub(this.dragStartWorld);
-        if (delta.lengthSq() > 0.0004) this.dragMoved = true;
-
         const zMode = store.settings.zMode;
+        let anyApplied = false;
 
         for (const st of this.dragBaseStates) {
-        if (this.dragModeY) {
-          st.item.y = clamp(st.y + delta.y, -HALF_H + 0.3, HALF_H - 0.3);
-        } else {
-          const nx = st.startPos.x + delta.x;
-          const nz = st.startPos.z + delta.z;
-          st.item.pan = xToPan(nx);
-          st.item._ableton.setPanLive(st.item.pan);
-
-          if (zMode === "spatial") {
-            st.item.sendA = zToSend(nz);
-            st.item._ableton.setSendALive(st.item.sendA);
+          if (this.dragModeY) {
+            if (!st.item.eq?.hasDevice) continue;
+            st.item.y = clamp(st.y + delta.y, -HALF_H + 0.3, HALF_H - 0.3);
+            abletonService.applyYAxisTiltEq(st.item, { immediate: false });
+            anyApplied = true;
           } else {
-            st.item.vol = zToVol(nz);
-            st.item._ableton.setVolLive(st.item.vol);
-            if (zMode === "depth") {
-              const dz = nz - st.startPos.z;
-              st.item.sendA = clamp(st.sendA - dz * 0.09, 0, 1);
+            const nx = st.startPos.x + delta.x;
+            const nz = st.startPos.z + delta.z;
+            st.item.pan = xToPan(nx);
+            st.item._ableton.setPanLive(st.item.pan);
+
+            if (zMode === "spatial") {
+              st.item.sendA = zToSend(nz);
               st.item._ableton.setSendALive(st.item.sendA);
+            } else {
+              st.item.vol = zToVol(nz);
+              st.item._ableton.setVolLive(st.item.vol);
+              if (zMode === "depth") {
+                const dz = nz - st.startPos.z;
+                st.item.sendA = clamp(st.sendA - dz * 0.09, 0, 1);
+                st.item._ableton.setSendALive(st.item.sendA);
+              }
             }
+            anyApplied = true;
           }
+          this.stage.updateOrb(st.item);
         }
-        this.stage.updateOrb(st.item);
-      }
-        store.emit("track-changed", this.draggingPrimary);
+
+        if (anyApplied && delta.lengthSq() > 0.0004) this.dragMoved = true;
+        if (anyApplied) store.emit("track-changed", this.draggingPrimary);
         this.showShadowTooltip(this.draggingPrimary, this.dragModeY);
       }
     });
@@ -290,6 +295,9 @@ export class Interaction3D {
         st.item._ableton.setPanLive(st.item.pan, true);
         st.item._ableton.setVolLive(st.item.vol, true);
         st.item._ableton.setSendALive(st.item.sendA, true);
+        if (this.dragMoved && this.dragModeY && st.item.eq?.hasDevice) {
+          abletonService.applyYAxisTiltEq(st.item, { immediate: true });
+        }
         st.item.isDragging = false;
       }
 
@@ -463,7 +471,9 @@ export class Interaction3D {
 
     let html;
     if (isYMode) {
-      html = `<b>${item.name}</b> · ${formatFreq(yToFreq(item.y))}`;
+      html = item.eq?.hasDevice
+        ? `<b>${item.name}</b> · ${formatFreq(yToFreq(item.y))} · Tilt EQ`
+        : `🔒 <b>${item.name}</b> · Eje Y solo lectura (agregá EQ Eight)`;
     } else {
       const lvl = getApparentVolumeLevel(abletonVolToDb(item.vol));
       html = `<b>${item.name}</b> · ${formatPan(item.pan)} · ${formatVolume(item.vol, store.settings.volUnit)} (L${lvl.lvl}) · Rev ${Math.round(item.sendA * 100)}%`;

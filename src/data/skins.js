@@ -152,4 +152,42 @@ export const SKINS = {
       sphereFlatShading: false,
     }
   },
+  macintosh_classic: {
+    name: "Macintosh Classic (System 7 / OS 8)",
+    ui: {
+      "--bg-app": "#d2d2d2",
+      "--bg-panel": "#dddddd",
+      "--bg-card": "#eeeeee",
+      "--bg-card-hover": "#ffffff",
+      "--bg-card-selected": "#333399",
+      "--bg-control": "#e6e6e6",
+      "--bg-control-hover": "#ffffff",
+      "--border": "#8c8c8c",
+      "--border-strong": "#111111",
+      "--text-main": "#000000",
+      "--text-muted": "#3a3a3a",
+      "--accent": "#333399",
+      "--accent-hover": "#222277",
+    },
+    scene: {
+      skyClouds: false,
+      bg: 0x5d6d85,          // Fondo clásico azul-gris Mac OS 8 Platinum
+      fogDensity: 0.005,
+      boxLines: 0x1a1a1a,
+      floorMain: 0xdbe2ec,
+      floorSub: 0x455368,
+      backMain: 0xdbe2ec,
+      backSub: 0x455368,
+      centerLine: 0xccccff,
+      clusterLine: 0x222277,
+      reverbCube: 0x818cf8,
+      spkCab: 0xd6d1c4,      // Beige clásico Macintosh
+      spkCone: 0x222222,
+      spkRim: 0x555555,
+      accentLight: 0xf4f6ff,
+      sphereRoughness: 0.28,
+      sphereMetalness: 0.06,
+      sphereFlatShading: false,
+    }
+  },
 };

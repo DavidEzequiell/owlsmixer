@@ -44,8 +44,8 @@ export class PresetsModalUI {
 
     this.btnPdfRef.addEventListener("click", () => {
       const preset = PRESETS[this.select.value];
-      if (!preset) return;
-      const page = preset.pdfPage || 1;
+      if (!preset || !preset.pdfPage) return;
+      const page = preset.pdfPage;
       const url = `${PDF_STATIC_PATH}?p=${page}#page=${page}`;
       this.pdfTitle.textContent = `📖 ${preset.name} — ${preset.ref}`;
       this.pdfExtLink.href = `${PDF_STATIC_PATH}#page=${page}`;
@@ -62,6 +62,29 @@ export class PresetsModalUI {
       this.btnApply.blur();
       const preset = PRESETS[this.select.value];
       if (!preset) return;
+
+      // Preset Default / Neutro (mismo estado que DRY, respetando pistas bloqueadas)
+      if (preset.isDefaultDry) {
+        for (const item of store.tracks) {
+          if (!item.locked && !item.isGroup && item.eq?.hasDevice && !item.eq.bound) {
+            await abletonService.ensureEqBound(item);
+          }
+        }
+        const before = store.captureSnapshot();
+        store.pushHistory(before);
+        const drySnap = store.buildDrySnapshot(before);
+        const mergedSnap = {
+          ...drySnap,
+          tracks: drySnap.tracks.map((t, idx) => {
+            const orig = before.tracks[idx];
+            const liveTrack = store.getTrackById(t.id);
+            return liveTrack && (liveTrack.locked || liveTrack.isGroup) ? orig : t;
+          }),
+        };
+        await abletonService.applySnapshot(mergedSnap);
+        this.onPresetApplied?.();
+        return;
+      }
 
       store.pushHistory(store.captureSnapshot());
 
@@ -93,10 +116,21 @@ export class PresetsModalUI {
   refreshMeta() {
     const p = PRESETS[this.select.value];
     if (!p) return;
-    this.refBadge.textContent = p.ref || "Ver PDF";
+    this.btnPdfRef.disabled = !p.pdfPage;
+    this.refBadge.textContent = p.ref || "Sin referencia PDF";
     this.descEl.textContent = p.desc || "";
 
     this.previewEl.innerHTML = "";
+    if (p.isDefaultDry) {
+      ["● Todas: C · 0.0 dB", "Send A: 0%", "EQ Eight: OFF", "Esfera · 1.00x"].forEach((txt) => {
+        const tag = document.createElement("span");
+        tag.className = "preset-role-tag";
+        tag.textContent = txt;
+        this.previewEl.appendChild(tag);
+      });
+      return;
+    }
+
     const unit = store.settings.volUnit;
     Object.entries(p.roles).forEach(([roleKey, cfg]) => {
       const tag = document.createElement("span");

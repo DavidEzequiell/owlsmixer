@@ -1,6 +1,14 @@
 // Presets calibrados con David Gibson — "The Art of Mixing" (4th Ed., 2026)
 // pdfPage = número exacto de página en el PDF (Static Resource: assets/art_of_mixing.pdf)
 export const PRESETS = {
+  default_dry: {
+    name: "Default / Neutro (Dry · 0 dB)",
+    ref: "Estado inicial de Ableton",
+    pdfPage: null,
+    isDefaultDry: true,
+    desc: "Resetea todas las pistas desbloqueadas al estado neutro de Ableton: Paneo Centro (C), Volumen 0.0 dB, Reverb 0%, EQ Eight apagado y forma Esfera 1.00x.",
+    roles: {},
+  },
   visual_g_alt_rock: {
     name: "Alternative Rock (Visual G)",
     ref: "Visual G · p. 8 (PDF p. 31)",

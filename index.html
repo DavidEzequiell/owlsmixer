@@ -188,11 +188,7 @@
       <button id="btn-flash-freeze" class="btn-toggle" title="FLASH: Congela el pulso/Crest de los meters para posicionar cómodo">⚡ Flash</button>
     </div>
 
-    <!-- ZONA 4 (Inferior Izquierda): Atajos plegables -->
-    <div class="shortcuts-corner">
-      <div class="hud-help hidden" id="hud-help"></div>
-      <button id="btn-toggle-shortcuts" class="toolbar-pill shortcuts-btn">⌨ Atajos</button>
-    </div>
+
   </div>
 
   <!-- Handle redimensionable de la Sidebar -->
@@ -231,15 +227,6 @@
         <!-- 1 pista -->
         <div id="inspector-single">
           <!-- Selector de Color sincronizado con Ableton -->
-          <div class="color-section" id="color-section">
-            <span class="slider-label" style="margin-bottom:4px;">
-              <span>Color (DAW + 3D)
-                <span class="help-icon" data-help="Cambia el color de la esfera en el 3D y de la pista real en Ableton Live (Live ajusta automáticamente al color más cercano de su paleta).">?</span>
-              </span>
-              <input id="inp-custom-color" type="color" class="custom-color-inp" title="Elegir color personalizado" disabled />
-            </span>
-            <div id="color-swatches" class="color-swatches"></div>
-          </div>
 
           <div class="two-col-sliders">
             <div class="slider-group">
@@ -255,8 +242,14 @@
               <input id="sl-send" type="range" min="0" max="1" step="0.01" value="0" disabled />
             </div>
             <div class="slider-group">
-              <div class="slider-label"><span>Altura Freq (Y)</span><span id="val-y">Mid</span></div>
+              <div class="slider-label">
+                <span>Altura Freq (Y)
+                  <span class="help-icon" data-help="Con EQ Eight en la pista, mover Y aplica un Tilt EQ tonal real en Ableton (Low-Shelf 220Hz + High-Shelf 3.5kHz). Sin EQ Eight queda en solo lectura.">?</span>
+                </span>
+                <span id="val-y">Mid</span>
+              </div>
               <input id="sl-y" type="range" min="-3" max="3" step="0.05" value="0" disabled />
+              <div id="y-readonly-hint" class="y-readonly-hint hidden">🔒 Sin EQ Eight (solo visual)</div>
             </div>
           </div>
 
@@ -442,15 +435,16 @@
     </div>
   </div>
 
-  <!-- Modal de Opciones & Guía -->
+  <!-- Modal de Opciones, Manual & Guía -->
   <div id="settings-modal" class="modal-backdrop hidden">
-    <div class="modal-card">
+    <div class="modal-card modal-settings">
       <div class="modal-header">
-        <h2>⚙ Opciones &amp; Referencia · The Art of Mixing</h2>
+        <h2>⚙ Opciones, Manual &amp; Referencia</h2>
         <button id="btn-close-settings" class="mini-btn">✕</button>
       </div>
       <div class="modal-tabs">
         <button class="tab-btn active" data-tab="prefs">Configuración</button>
+        <button class="tab-btn" data-tab="manual">Instrucciones</button>
         <button class="tab-btn" data-tab="guide">Guía del Libro (Gibson)</button>
       </div>
 
@@ -522,6 +516,86 @@
         </div>
       </div>
 
+
+      <!-- Pestaña Instrucciones y Atajos -->
+      <div id="tab-manual" class="modal-body hidden">
+        <div id="manual-diagram-slot" class="manual-diagram-slot">
+          <img
+            id="manual-diagram-img"
+            src="./assets/manual_diagram.png"
+            alt="Diagrama de uso de Owls 3D Mixer"
+            class="manual-diagram-img"
+            onerror="this.parentElement.classList.add('hidden');"
+          />
+        </div>
+
+        <div class="manual-grid">
+          <div class="manual-card">
+            <span class="manual-num">01</span>
+            <div>
+              <b>Transporte y Sync con Live</b>
+              <p><b>Play/Pause</b> controla el transporte de Ableton, <b>↻</b> re-escanea pistas y plugins, y <b>↶ / ↷</b> deshace o rehace cambios.</p>
+            </div>
+          </div>
+
+          <div class="manual-card">
+            <span class="manual-num">02</span>
+            <div>
+              <b>Posición 3D (X, Y, Z)</b>
+              <p><b>Arrastrar esfera:</b> Pan (X) + Volumen / True Depth / Reverb (Z). <b>Rueda:</b> Send A (o Vol). <b>Shift + Arrastrar:</b> Eje Y (Tilt EQ real si la pista tiene EQ Eight).</p>
+            </div>
+          </div>
+
+          <div class="manual-card">
+            <span class="manual-num">03</span>
+            <div>
+              <b>Capas Visuales (Dock Inferior)</b>
+              <p>En <b>👁 Capas</b> podés prender o apagar Cubos Reverb, Niveles Piso, Bandas Freq, Choques, Sombras en el piso y Líneas/Aros guía.</p>
+            </div>
+          </div>
+
+          <div class="manual-card">
+            <span class="manual-num">04</span>
+            <div>
+              <b>Ventanas y Sidebar</b>
+              <p>Desde <b>🪟 Ventanas</b> abrís o cerrás Espacio &amp; LUFS, Return A Reverb, Escenas/Timeline, Presets, Grupos e Inspector. <b>Clic derecho</b> en el punto de color de una pista cambia su color.</p>
+            </div>
+          </div>
+
+          <div class="manual-card">
+            <span class="manual-num">05</span>
+            <div>
+              <b>Bancos A–D, DRY y Snapshots</b>
+              <p>Guardá y compará hasta 4 mezclas (Shift+Clic o Clic Der sobreescribe). <b>DRY</b> apaga temporalmente Pan, Reverb y EQ para comparar. Exportá o cargá en <code>.json</code>.</p>
+            </div>
+          </div>
+
+          <div class="manual-card">
+            <span class="manual-num">06</span>
+            <div>
+              <b>EQ Window, Quick EQ y Carve</b>
+              <p>En <b>EQ Window</b> editás las 7 franjas de Gibson sobre EQ Eight (X: Cut/Boost, Shift+Drag: Hz, Rueda: Q, Clic Der: On/Off). En LUFS podés resolver choques con <b>✂ Priorizar</b>.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="shortcuts-box">
+          <h4>Atajos de teclado y mouse</h4>
+          <div class="shortcuts-grid">
+            <span><code>Space</code> Play / Pause</span>
+            <span><code>Ctrl+Z / Ctrl+Y</code> Deshacer / Rehacer</span>
+            <span><code>E</code> Alternar Mix 3D / EQ Window</span>
+            <span><code>F</code> Ocultar / Mostrar Sidebar</span>
+            <span><code>M</code> / <code>Ctrl+Clic</code> Mute</span>
+            <span><code>S</code> / <code>Alt+Clic</code> Solo</span>
+            <span><code>U</code> Quitar todos los Solos</span>
+            <span><code>Esc</code> Cerrar menú / Limpiar selección</span>
+            <span><code>Doble clic</code> Renombrar pista</span>
+            <span><code>Clic der. en color</code> Cambiar color de pista</span>
+          </div>
+        </div>
+      </div>
+
       <div id="tab-guide" class="modal-body hidden">
         <div class="book-quote">
           <h4>Los 3 Ejes de Imaging (Cap. 2, Visual 8, p. 39–41)</h4>
@@ -540,12 +614,45 @@
           <p><b>Esfera:</b> mono puntual. <b>Elipsoide (Fattening &lt;30ms / Stereo):</b> estira el sonido entre parlantes. <b>Cubo translúcido (Reverb):</b> llena el espacio de la habitación.</p>
         </div>
       </div>
+
+      <!-- Easter Egg VHS oculto + Footer con versión -->
+      <div id="easter-egg-panel" class="easter-egg-panel hidden">
+        <div class="egg-title">📼 SECRET UNLOCKED · DAVID GIBSON — THE ART OF MIXING (1997)</div>
+        <p class="egg-desc">El legendario VHS de 2h 39m con el mullet, el bigote y la caja 3D original que inspiró esta app.</p>
+        <div class="egg-actions">
+          <a
+            href="https://www.youtube.com/watch?v=TEjOdqZFvhY"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="mini-link-btn egg-yt-btn"
+          >▶ Ver The Art of Mixing en YouTube</a>
+          <button id="btn-egg-skin97" class="mini-btn">📺 Activar Skin '97</button>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <span class="muted-note" style="margin:0;">Owls 3D Mixer · Virtual Mixer for Ableton Live</span>
+        <button id="app-version-egg" class="version-egg-btn" title="Versión actual">v0.0.7</button>
+      </div>
     </div>
   </div>
 
+  <!-- Popover flotante de Color (Clic derecho en el punto de color de una pista) -->
+  <div id="color-popover" class="color-popover hidden">
+    <div class="color-popover-header">
+      <span id="color-popover-title">Color de pista</span>
+      <button id="btn-close-color-popover" class="mini-btn">✕</button>
+    </div>
+    <div id="color-swatches" class="color-swatches"></div>
+    <label class="color-custom-row">
+      <span>Personalizado</span>
+      <input id="inp-custom-color" type="color" class="custom-color-inp" title="Elegir color personalizado" />
+    </label>
+  </div>
   <!-- Portal global para HelpTexts estilo Salesforce (?) -->
   <div id="sf-tooltip-portal" class="sf-tooltip hidden"></div>
 
   <script type="module" src="./src/main.js"></script>
+
 </body>
 </html>

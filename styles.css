@@ -1287,3 +1287,477 @@ body[data-skin="winamp_classic"] .top-popover {
   border-radius: 2px;
   border: 1px solid #68738f;
 }
+/* =========================================================================
+   EJE Y READ-ONLY, MANUAL ESTILO VIDEOJUEGO & EASTER EGG VHS (v0.0.7)
+   ========================================================================= */
+.y-readonly-hint {
+  margin-top: 2px;
+  font-size: 9.5px;
+  color: var(--warn);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.modal-settings {
+  width: 640px;
+}
+
+.manual-diagram-slot {
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-app);
+  padding: 12px;
+  text-align: center;
+}
+.manual-diagram-img {
+  max-width: 100%;
+  max-height: 240px;
+  border-radius: 6px;
+  display: block;
+  margin: 0 auto;
+}
+.manual-diagram-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 6px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+.diagram-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.manual-diagram-placeholder code {
+  color: var(--text-main);
+  background: var(--bg-card);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.manual-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+@media (max-width: 600px) {
+  .manual-grid { grid-template-columns: 1fr; }
+}
+.manual-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.42;
+}
+.manual-card b {
+  display: block;
+  font-size: 11.5px;
+  color: var(--text-main);
+  margin-bottom: 2px;
+}
+.manual-card p {
+  color: var(--text-muted);
+}
+.manual-card code {
+  background: var(--bg-app);
+  color: var(--text-main);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+}
+.manual-num {
+  flex-shrink: 0;
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-app));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.version-egg-btn {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--bg-app);
+  border: 1px solid var(--border-strong);
+}
+.version-egg-btn:hover {
+  color: var(--text-main);
+  border-color: var(--accent);
+}
+
+.easter-egg-panel {
+  margin: 0 16px 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, rgba(121, 188, 232, 0.16), rgba(168, 85, 247, 0.18));
+  border: 1px solid #a855f7;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.egg-title {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  font-weight: 800;
+  color: #facc15;
+  letter-spacing: 0.04em;
+}
+.egg-desc {
+  font-size: 11.5px;
+  color: var(--text-main);
+  line-height: 1.4;
+}
+.egg-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.egg-yt-btn {
+  background: #dc2626 !important;
+  border-color: #f87171 !important;
+  color: #ffffff !important;
+  font-weight: 700;
+}
+
+body[data-skin="gibson_90s"] .manual-card,
+body[data-skin="gibson_90s"] .manual-diagram-slot,
+body[data-skin="gibson_90s"] .easter-egg-panel {
+  border-radius: 0;
+  background: #dfdfdf;
+  color: #000;
+  border: 1px solid #404040;
+}
+body[data-skin="gibson_90s"] .manual-card p,
+body[data-skin="gibson_90s"] .manual-card b,
+body[data-skin="gibson_90s"] .egg-desc { color: #000; }
+body[data-skin="gibson_90s"] .egg-title { color: #000080; }
+body[data-skin="gibson_90s"] .y-readonly-hint { color: #800000; }
+/* =========================================================================
+   PULIDO FINAL v0.0.7: SIDEBAR LEGIBLE, COLOR POPOVER & ATAJOS EN OPCIONES
+   ========================================================================= */
+.track-item {
+  gap: 4px;
+  padding: 5px 6px;
+}
+.track-item.is-child {
+  margin-left: 10px;
+}
+.track-name {
+  min-width: 68px;
+}
+.role-select {
+  width: 76px;
+  padding: 2px 4px;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.track-swatch-btn {
+  width: 12px;
+  height: 12px;
+  cursor: context-menu;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.track-swatch-btn:hover {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 2px #ffffff;
+}
+
+/* Popover flotante de color por clic derecho */
+.color-popover {
+  position: fixed;
+  width: 198px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 9px 10px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.65);
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.color-popover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-main);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 5px;
+}
+.color-popover-header span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.color-custom-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+/* Atajos dentro de Instrucciones */
+.shortcuts-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+}
+.shortcuts-box h4 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  margin-bottom: 7px;
+}
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.shortcuts-grid code {
+  background: var(--bg-app);
+  color: var(--text-main);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  margin-right: 4px;
+}
+
+/* Garantizar que footer y Easter Egg nunca se compriman dentro del modal */
+.modal-footer,
+.easter-egg-panel {
+  flex-shrink: 0;
+}
+
+body[data-skin="gibson_90s"] .color-popover,
+body[data-skin="gibson_90s"] .shortcuts-box {
+  background: #c0c0c0;
+  color: #000;
+  border-radius: 0;
+  border: 2px outset #ffffff;
+  box-shadow: 2px 2px 0 #000;
+}
+body[data-skin="gibson_90s"] .color-popover-header,
+body[data-skin="gibson_90s"] .color-custom-row,
+body[data-skin="gibson_90s"] .shortcuts-grid { color: #000; }
+
+body[data-skin="ableton_live"] .color-popover {
+  background: #242424;
+  border: 1px solid #111;
+  border-radius: 4px;
+}
+body[data-skin="winamp_classic"] .color-popover {
+  background: linear-gradient(180deg, #323848 0%, #232734 100%);
+  border-radius: 2px;
+  border: 1px solid #68738f;
+}
+/* =========================================================================
+   SKIN RETRO: "MACINTOSH CLASSIC (SYSTEM 7 / OS 8 PLATINUM)"
+   ========================================================================= */
+body[data-skin="macintosh_classic"] {
+  --font-ui: "Geneva", "Charcoal", "Lucida Grande", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+body[data-skin="macintosh_classic"] #sidebar,
+body[data-skin="macintosh_classic"] .toolbar-pill,
+body[data-skin="macintosh_classic"] .render-dock,
+body[data-skin="macintosh_classic"] .floating-window,
+body[data-skin="macintosh_classic"] .modal-card,
+body[data-skin="macintosh_classic"] .loading-box,
+body[data-skin="macintosh_classic"] .dock-popover,
+body[data-skin="macintosh_classic"] .top-popover,
+body[data-skin="macintosh_classic"] .color-popover,
+body[data-skin="macintosh_classic"] .error-card {
+  background: #dddddd;
+  color: #000000;
+  border: 1px solid #000000;
+  border-radius: 3px;
+  box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #999999, 2px 2px 0 rgba(0, 0, 0, 0.38);
+  backdrop-filter: none;
+}
+
+/* Clásicas rayitas horizontales (pinstripes) de ventanas Macintosh */
+body[data-skin="macintosh_classic"] .floating-header,
+body[data-skin="macintosh_classic"] .modal-header,
+body[data-skin="macintosh_classic"] .panel-title {
+  background: repeating-linear-gradient(
+    to bottom,
+    #f2f2f2 0px,
+    #f2f2f2 1px,
+    #b5b5b5 1px,
+    #b5b5b5 2px
+  );
+  color: #000000;
+  border-bottom: 1px solid #000000;
+  padding: 5px 8px;
+  font-weight: 700;
+  text-shadow: 0 1px 0 #ffffff;
+}
+body[data-skin="macintosh_classic"] .panel-title {
+  border: 1px solid #555555;
+  border-radius: 2px;
+  padding: 3px 6px;
+}
+
+body[data-skin="macintosh_classic"] button,
+body[data-skin="macintosh_classic"] .mini-link-btn {
+  background: linear-gradient(180deg, #fafafa 0%, #dcdcdc 100%);
+  color: #000000;
+  border: 1px solid #111111;
+  border-radius: 4px;
+  box-shadow: inset 1px 1px 0 #ffffff, inset -1px -1px 0 #aaaaaa;
+}
+body[data-skin="macintosh_classic"] button:active:not(:disabled) {
+  background: #222222;
+  color: #ffffff;
+  box-shadow: none;
+}
+body[data-skin="macintosh_classic"] button.primary {
+  background: linear-gradient(180deg, #f4f4ff 0%, #c8c8ef 100%);
+  border: 2px solid #000000;
+  color: #000000;
+  font-weight: 700;
+}
+body[data-skin="macintosh_classic"] .segmented {
+  background: #c8c8c8;
+  border: 1px solid #444444;
+  border-radius: 4px;
+}
+body[data-skin="macintosh_classic"] .segmented button {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+}
+body[data-skin="macintosh_classic"] .segmented button.active,
+body[data-skin="macintosh_classic"] button.btn-toggle.active,
+body[data-skin="macintosh_classic"] button.active-toggle {
+  background: #333399;
+  color: #ffffff;
+  border-color: #000000;
+  box-shadow: none;
+}
+body[data-skin="macintosh_classic"] button.playing {
+  background: #2e8b57 !important;
+  color: #ffffff !important;
+  border-color: #000000 !important;
+}
+
+body[data-skin="macintosh_classic"] select,
+body[data-skin="macintosh_classic"] .rename-input,
+body[data-skin="macintosh_classic"] .master-lufs-box {
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid #111111;
+  border-radius: 3px;
+}
+
+body[data-skin="macintosh_classic"] .track-item {
+  background: #f5f5f5;
+  color: #000000;
+  border: 1px solid #999999;
+  border-radius: 2px;
+}
+body[data-skin="macintosh_classic"] .track-item:hover {
+  background: #ffffff;
+}
+body[data-skin="macintosh_classic"] .track-item.selected {
+  background: #333399;
+  color: #ffffff;
+  border-color: #000000;
+}
+body[data-skin="macintosh_classic"] .group-header {
+  background: #cccccc;
+  color: #000000;
+  border: 1px solid #444444;
+  border-radius: 2px;
+}
+
+body[data-skin="macintosh_classic"] .pill-info,
+body[data-skin="macintosh_classic"] .pdf-link-btn {
+  background: #ffffff;
+  color: #222277;
+  border: 1px solid #333399;
+  border-radius: 3px;
+}
+body[data-skin="macintosh_classic"] .eq-tip,
+body[data-skin="macintosh_classic"] .book-quote,
+body[data-skin="macintosh_classic"] .manual-card,
+body[data-skin="macintosh_classic"] .shortcuts-box,
+body[data-skin="macintosh_classic"] .sf-tooltip,
+body[data-skin="macintosh_classic"] .drag-tooltip {
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid #000000;
+  border-radius: 3px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
+}
+body[data-skin="macintosh_classic"] .manual-card p,
+body[data-skin="macintosh_classic"] .manual-card b,
+body[data-skin="macintosh_classic"] .shortcuts-grid,
+body[data-skin="macintosh_classic"] .slider-label,
+body[data-skin="macintosh_classic"] .muted-note,
+body[data-skin="macintosh_classic"] .toolbar-label,
+body[data-skin="macintosh_classic"] .layer-toggle-item,
+body[data-skin="macintosh_classic"] .dock-popover-title,
+body[data-skin="macintosh_classic"] .group-toggle-label,
+body[data-skin="macintosh_classic"] .color-popover-header,
+body[data-skin="macintosh_classic"] .color-custom-row {
+  color: #111111;
+}
+body[data-skin="macintosh_classic"] input[type="range"] {
+  accent-color: #333399;
+}
+/* Badge EQ en lista de pistas (v0.0.7) */
+.eq-badge {
+  flex-shrink: 0;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: #86efac;
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.45);
+}
+body[data-skin="gibson_90s"] .eq-badge,
+body[data-skin="macintosh_classic"] .eq-badge {
+  background: #d1fae5;
+  color: #065f46;
+  border-color: #065f46;
+  border-radius: 2px;
+}

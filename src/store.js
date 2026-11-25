@@ -5,6 +5,7 @@ import {
   volToZLog, zToVolLog,
   freqToY, yToFreq, formatFreq, getApparentVolumeLevel,
 } from "./engine/psychoacoustics.js";
+import { ROLES } from "./data/roles.js";
 
 export {
   HALF_W, HALF_H, HALF_D, clamp,
@@ -273,19 +274,23 @@ class Store extends EventTarget {
   }
 
   buildDrySnapshot(baseSnap) {
-    return {
-      reverb: baseSnap.reverb,
-      virtualGroups: baseSnap.virtualGroups,
-      tracks: baseSnap.tracks.map((t) => ({
-        ...t,
-        pan: 0,
-        sendA: 0,
-        eqBands: Array.isArray(t.eqBands)
-          ? t.eqBands.map((b) => ({ ...b, on: false }))
-          : null,
-      })),
-    };
-  }
+      return {
+        reverb: baseSnap.reverb,
+        virtualGroups: baseSnap.virtualGroups,
+        tracks: baseSnap.tracks.map((t) => ({
+          ...t,
+          pan: 0,
+          vol: 0.85, // 0.0 dB neutro de Ableton Live
+          sendA: 0,
+          y: ROLES[t.role]?.defaultY ?? 0,
+          shape: "sphere",
+          sizeScale: 1.0,
+          eqBands: Array.isArray(t.eqBands)
+            ? t.eqBands.map((b) => ({ ...b, on: false }))
+            : null,
+        })),
+      };
+    }
 
   backfillBankEq(trackItem) {
     if (!trackItem?.eq?.bound) return;

@@ -32,8 +32,7 @@ export class HudUI {
     this.btnLoadMix = document.getElementById("btn-load-mix");
     this.fileLoadMix = document.getElementById("file-load-mix");
     this.btnSettings = document.getElementById("btn-settings");
-    this.btnToggleShortcuts = document.getElementById("btn-toggle-shortcuts");
-    this.hudHelp = document.getElementById("hud-help");
+
 
     this.eqBanner = document.getElementById("eq-banner");
     this.viewModeBtns = document.querySelectorAll("#view-mode-switch button[data-view]");
@@ -148,10 +147,6 @@ export class HudUI {
       store.updateSettings({ zMode: next });
     });
 
-    this.btnToggleShortcuts.addEventListener("click", () => {
-      this.btnToggleShortcuts.blur();
-      this.hudHelp.classList.toggle("hidden");
-    });
 
     this.btnToggleSidebar = document.getElementById("btn-toggle-sidebar");
     this.btnFullscreen = document.getElementById("btn-fullscreen");
@@ -288,23 +283,6 @@ export class HudUI {
       const key = inp.dataset.layerSetting;
       if (key) inp.checked = store.settings[key] !== false;
     });
-
-    const dragDesc =
-      zMode === "depth"
-        ? "Pan (X) + Profundidad (Vol + Reverb inv. + Aire EQ)"
-        : zMode === "spatial"
-          ? "Pan (X) + Send A (Z)"
-          : "Pan (X) + Volumen (Z)";
-    const wheelDesc = zMode === "spatial" ? "Volumen" : "Reverb Send A";
-
-    this.hudHelp.innerHTML =
-      `<b>Space:</b> Play/Pause<br/>` +
-      `<b>Ctrl+Z / Ctrl+Y:</b> Deshacer / Rehacer<br/>` +
-      `<b>Arrastrar esfera:</b> ${dragDesc}<br/>` +
-      `<b>Shift + Arrastrar:</b> Altura Frecuencia (Y)<br/>` +
-      `<b>Rueda sobre esfera:</b> ${wheelDesc}<br/>` +
-      `<b>Ctrl+Click (M):</b> Mute &nbsp;|&nbsp; <b>Alt+Click (S):</b> Solo &nbsp;|&nbsp; <b>U:</b> Quitar Solos<br/>` +
-      `<b>Esc:</b> Limpiar selección &nbsp;|&nbsp; <b>Doble clic en lista:</b> Renombrar`;
   }
   syncBanksUI() {
     this.bankBtns.forEach((btn) => {

@@ -1,64 +1,47 @@
-# 🦉 Owls 3D Mixer — *The Art of Mixing* para Ableton Live
+# 🦉 Owls 3D Mixer (`v0.0.7`)
 
-Interfaz de mezcla espacial en **3D en tiempo real** para **Ableton Live 12**, inspirada en el *Virtual Mixer* de David Gibson (*"The Art of Mixing"*). Conectada bidireccionalmente vía **AbletonJS v5** (`ws://127.0.0.1:39031`), sin build step (Vanilla ES Modules + Three.js r170) [1.1].
-
-> **Estado actual:** `v0.0.5` + branch `MixEngine` (camino a `v0.0.6` UI/UX polish)
+Mezclador visual 3D en tiempo real para **Ableton Live** basado en los principios de *The Art of Mixing* de David Gibson. Corre en el navegador vía **AbletonJS** y sincroniza bidireccionalmente paneo, volumen, envíos, EQ, colores, nombres y transporte con tu sesión de Live.
 
 ---
 
-## ✨ Qué hace hoy
+## ✨ Novedades principales en `v0.0.7`
 
-### 🎛️ Mapa 3D Psicoacústico (`Mix 3D`)
-* **Eje X (Paneo):** Izquierda ↔ Derecha en tiempo real.
-* **Eje Y (Frecuencia):** `20 Hz` → `20 kHz` logarítmico (`Shift + Drag`). Se recalcula dinámicamente con los cambios en `EQ Eight` (`computeEqYShift()`).
-* **Eje Z (3 Modos):**
-  * **Volumen (Gibson):** 6 niveles de volumen aparente (`-36 dB` a `+6 dB`).
-  * **True Depth:** Al acercar/alejar en Z combina **Volumen + Send A Reverb inverso + High-Shelf Aire** en Banda 8 de `EQ Eight`.
-  * **Reverb (Espacial):** Mapea profundidad directo al `Send A`.
-* **Auto-Size por Energía Real:** Escala visualmente las esferas combinando **Crest Factor** (relación pico/RMS en vivo desde los meters) y **recortes `<300 Hz`** en `EQ Eight`.
-* **Formas de Gibson:** Esferas (mono puntual), Elipsoides (estéreo / fattening) y Cubos translúcidos de Reverb vinculados a *Return A*.
-* **Micro-UX:** Tooltip flotante proyectado sobre la sombra/cursor al arrastrar, botón **⚡ Flash** para congelar meters y **Modo Focus (`F`) / Pantalla completa** para ocultar la sidebar.
-
-### 🔬 Analizador *Espacio & LUFS* + *Solar Eclipse* (`Carve EQ`)
-* Medidor **Master Short-Term LUFS (3s)** + detector de **CLIP** con objetivos por género (`Streaming -14`, `Indie -10`, `Wall -8`, `Acoustic -16`).
-* Ocupación volumétrica de la caja (`Sparse` → `Balanced` → `Wall of Sound` → `Mudd City!`) y porcentaje de Low-End (`<250 Hz`).
-* **Detector de Colisiones con Escala Bark (Zwicker):** Detecta enmascaramiento en bandas críticas del oído humano y distingue barro real (`<400 Hz` en ambas pistas).
-* **Resolución en 1 clic (`✂ Priorizar`):** Aplica un recorte paramétrico `Bell` quirúrgico (`-2.5` a `-3.5 dB`) en el `EQ Eight` de la pista rival (o separación en Pan si no tiene EQ).
-
-### 🎚️ Bancos A/B/C/D, Bypass `DRY` y Escenas por Timeline
-* **Bancos rápidos `A / B / C / D`:** Comparación instantánea dentro de Ableton (auto-guarda `A` al conectar, auto-guarda al cambiar de banco y realiza *backfill* automático de EQs).
-* **Toggle `DRY`:** Apaga temporalmente Pan, Reverb Send A y bandas activas de EQ sin alterar los faders de volumen.
-* **Escenas / Timeline (`Auto: ON/OFF`):** Lee `current_song_time` y *Locators* (`cue_points`) de Ableton para cambiar automáticamente entre Bancos según el compás (ej. `Verso → A`, `Estribillo → B`).
-
-### 🎛️ `EQ Window 3D` + Presets del Libro + Skins
-* Vista frontal de las 7 franjas de Gibson sincronizada con las 8 bandas reales de `EQ Eight` + barras fantasma de pistas en colisión y **⚡ Quick EQ Gibson** por rol (`19` categorías).
-* Presets calibrados del libro con visor de PDF integrado en la página exacta de cada diagrama (`assets/art_of_mixing.pdf`) [1.1].
-* **4 Skins visuales:** `Gibson Dark`, `Art of Mixing '97 (Win98)`, `Winamp 2.91 Classic (LCD)` y `Ableton Live 12 (Dark)`.
+- **Sistema de Ventanas Modulares (`🪟 Ventanas ▾`):** *Espacio & LUFS*, *Return A · Reverb 3D*, *Escenas / Timeline* y *Presets* ahora son ventanas flotantes arrastrables e independientes con posición y visibilidad guardadas automáticamente. También podés ocultar *Grupos* o *Inspector* en la sidebar.
+- **HUD superior en 1 línea y Dock compacto (`👁 Capas ▾`):** Skins movidos a `⚙ Opciones`; capas visuales agrupadas en un menú desplegable que incluye toggles nuevos para apagar **Sombras en el piso** y **Líneas y aros guía**.
+- **Eje Y inteligente con Tilt EQ real:** Si la pista tiene **EQ Eight**, mover el Eje Y (slider o `Shift + Arrastrar`) aplica un **Tilt EQ tonal real en vivo** en Ableton (Low-Shelf 220 Hz + High-Shelf 3.5 kHz). Si no hay EQ Eight, queda en **solo lectura** con aviso y badge `EQ` en la lista de pistas.
+- **DRY neutro real + Preset `Default / Neutro`:** `DRY` lleva temporalmente las pistas al estado inicial de Ableton (`Pan C · 0.0 dB · Reverb 0% · EQ OFF`) y restaura exacto al volver; también disponible como preset permanente con `Ctrl+Z`.
+- **Color por clic derecho & Doble clic estilo Ableton:** Clic derecho sobre el punto de color de cualquier pista abre el selector sincronizado con Ableton. Doble clic en cualquier slider lo devuelve a su valor neutro (`C`, `0.0 dB`, `0%`, `1.00x`).
+- **5 Skins completos:** *Gibson Dark*, *Art of Mixing '97 (Win98/SGI)*, *Winamp 2.91 Classic*, *Ableton Live 12 (Dark)* y nuevo **Macintosh Classic (System 7 / OS 8)**.
+- **Crash / Error Recovery Handler:** Captura global de errores de carga, escaneo, JSON o WebGL con botones de reintentar, resetear preferencias y copiar log.
 
 ---
 
-## ⌨️ Atajos de Teclado
+## 🎛️ Funcionalidades clave
 
-| Tecla | Acción |
-| :--- | :--- |
-| `Space` / `Shift+Space` | Play / Pause (o Continue) en Ableton |
-| `E` | Alternar entre `Mix 3D` y `EQ Window` |
-| `F` | Ocultar / Mostrar panel lateral (Modo Focus) |
-| `M` / `S` / `U` | Mute / Solo selección / Quitar todos los Solos |
-| `Ctrl+Z` / `Ctrl+Y` | Deshacer / Rehacer (40 niveles) |
-| `Shift + Drag` | Mover en Eje Y (Frecuencia) |
-| `Ctrl+Click` / `Alt+Click` | Mute / Solo rápido sobre esfera |
+- **Escenario 3D calibrado (X / Y / Z):**
+  - **X:** Paneo (`L ↔ R`).
+  - **Y:** Frecuencia (`20 Hz – 20 kHz`) con Tilt EQ en vivo sobre EQ Eight.
+  - **Z:** 3 modos conmutables — *Gibson* (6 niveles logarítmicos en dB), *True Depth* (Volumen + Reverb inverso + Aire High-Shelf) y *Espacial* (Send A).
+- **EQ Window 3D (`E`) & Quick EQ:** Edición visual de las 7 franjas de Gibson directamente sobre Ableton EQ Eight + recetas base por rol.
+- **Motor Psicoacústico (Espacio, LUFS & Carve):** Medidor Short-Term LUFS del Master, ocupación real de la caja 3D, detección de enmascaramiento (*Solar Eclipse* en escala Bark) y botón **✂ Priorizar** para recortar automáticamente el choque en EQ Eight.
+- **Bancos `A / B / C / D`, Escenas / Timeline y Snapshots `.json`:** Guardá hasta 4 mezclas, automatizá cambios por compás/Locators de Ableton y exportá o cargá sesiones completas.
+- **Auto-Size & ⚡ Flash:** Escala dinámica por Crest Factor + recortes `<300 Hz`, con congelado instantáneo para posicionar con precisión.
 
 ---
 
-## 🗺️ Roadmap
+## 🚀 Instalación rápida (AbletonJS)
 
-### `v0.0.6` — Limpieza UI/UX & Persistencia
-* [ ] Reducir ruido visual en Sidebar (pestañas `Mezcla` / `Engine & FX` para liberar altura en la lista de pistas).
-* [ ] Compactar barra superior (mover selector de Skin a `⚙ Opciones`) y agrupar toggles del Dock en menú `Capas`.
-* [ ] Persistir Bancos `A / B / C / D` dentro del `.json` exportado (para cargar Verso/Estribillo completos de una).
+1. Instalá y activá el Remote Script **AbletonJS** en Ableton Live (`Preferencias → Link, Tempo & MIDI`).
+2. Copiá esta carpeta dentro de `AbletonJS/static/owlsmixer/`.
+3. Abrí tu proyecto en Ableton Live y entrá desde el navegador a la URL local servida por AbletonJS (ej. `http://localhost:9001/owlsmixer/`).
+4. *(Opcional)* Si querés usar las referencias de página de los Presets, colocá tu PDF en `owlsmixer/assets/art_of_mixing.pdf`.
 
-### `v0.1.0+` — Arquitectura Multi-DAW & Dinámicas
-* [ ] Mantener `src/engine/` 100% agnóstico del DAW para futuros adapters (OSC/Reaper o plugin nativo **JUCE 8 WebView** VST3/AU/CLAP).
-* [ ] **FFT real por canal** (vía micro bridge Max for Live o PCM en plugin nativo) para dejar de estimar frecuencias solo por rol.
-* [ ] Adaptadores de **`Compressor`** y **`Utility`** (sidechain / ducking automático desde *Solar Eclipse*).
+---
+
+## 🗺️ Rumbo a `v0.1.0`
+
+- Tutorial interactivo paso a paso + diagrama visual en *Instrucciones*.
+- Más adapters de EQ y dinámica (*FabFilter Pro-Q*, *EQ Three*, *Compressor Sidechain*).
+- Buscador de pistas y autoguardado por sesión.
+- Modo Demo / Sandbox sin Ableton para probar en el navegador.
+- Selector de calidad gráfica (*Rendimiento* vs *Studio Ultra*).
