@@ -27,14 +27,14 @@ export class SidebarUI {
     this.inspSingle = document.getElementById("inspector-single");
     this.inspMulti = document.getElementById("inspector-multi");
 
+    
     this.slPan = document.getElementById("sl-pan");
     this.valPan = document.getElementById("val-pan");
     this.slVol = document.getElementById("sl-vol");
-    this.valVol = document.getElementById("val-vol");
+    
     this.slSend = document.getElementById("sl-send");
     this.valSend = document.getElementById("val-send");
     this.slY = document.getElementById("sl-y");
-    this.valY = document.getElementById("val-y");
     this.slSize = document.getElementById("sl-size");
     this.valSize = document.getElementById("val-size");
     this.btnToggleShape = document.getElementById("btn-toggle-shape");
@@ -405,7 +405,8 @@ export class SidebarUI {
 
       this.inspName.textContent = (item.locked ? "🔒 " : "") + (item.isGroup ? `📁 ${item.name}` : item.name);
       this.inspRoleBadge.textContent = roleCfg.label;
-
+      const volLvl = getApparentVolumeLevel(abletonVolToDb(item.vol));
+      this.valVol.textContent = `${formatVolume(item.vol, unit)} · L${volLvl.lvl}`;
       this.slPan.value = item.pan;
       this.valPan.textContent = formatPan(item.pan);
       this.slVol.value = item.vol;
