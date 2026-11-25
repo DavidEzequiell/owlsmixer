@@ -1,5 +1,5 @@
 import { ROLES } from "../data/roles.js";
-import { store, clamp, formatVolume, formatPan } from "../store.js";
+import { store, clamp, formatVolume, formatPan, yToFreq, formatFreq, abletonVolToDb, getApparentVolumeLevel } from "../store.js";
 import { abletonService } from "../services/abletonService.js";
 
 export class SidebarUI {
@@ -40,6 +40,8 @@ export class SidebarUI {
     this.btnToggleShape = document.getElementById("btn-toggle-shape");
     this.btnToggleLock = document.getElementById("btn-toggle-lock");
     this.eqTipBox = document.getElementById("eq-tip-box");
+    this.colorSwatchesEl = document.getElementById("color-swatches");
+    this.inpCustomColor = document.getElementById("inp-custom-color");
 
     this.slGrpPan = document.getElementById("sl-grp-pan");
     this.valGrpPan = document.getElementById("val-grp-pan");
@@ -64,6 +66,7 @@ export class SidebarUI {
     this.initReverbUI();
     this.initGroupsUI();
     this.initInspectorUI();
+    this.initColorPickerUI();
   }
 
   initCollapsibleSections() {
@@ -347,6 +350,32 @@ export class SidebarUI {
       this.onTrackVisualChanged();
     });
   }
+  initColorPickerUI() {
+    const ABLETON_PALETTE = [
+      "#ff3636", "#ff7c24", "#ffd12a", "#8ce639",
+      "#1bc96b", "#00d4c8", "#2d9dff", "#5c6bff",
+      "#9c59ff", "#e859c9", "#ff8fab", "#a8b3c2",
+    ];
+    this.colorSwatchesEl.innerHTML = "";
+    ABLETON_PALETTE.forEach((hex) => {
+      const btn = document.createElement("button");
+      btn.className = "swatch-btn";
+      btn.dataset.hex = hex;
+      btn.style.background = hex;
+      btn.title = hex;
+      btn.addEventListener("click", () => {
+        btn.blur();
+        const sel = store.getSelectedTracks();
+        if (sel.length === 1) abletonService.setTrackColor(sel[0], hex, true);
+      });
+      this.colorSwatchesEl.appendChild(btn);
+    });
+
+    this.inpCustomColor.addEventListener("change", () => {
+      const sel = store.getSelectedTracks();
+      if (sel.length === 1) abletonService.setTrackColor(sel[0], this.inpCustomColor.value, true);
+    });
+  }
 
   updateInspector() {
     const sel = store.getSelectedTracks();
@@ -359,6 +388,8 @@ export class SidebarUI {
       this.inspName.textContent = "Seleccioná una esfera";
       this.inspRoleBadge.textContent = "";
       this.eqTipBox.classList.add("hidden");
+      this.inpCustomColor.disabled = true;
+      this.colorSwatchesEl.querySelectorAll(".swatch-btn").forEach((b) => { b.disabled = true; b.classList.remove("active"); });
       return;
     }
 
@@ -398,6 +429,12 @@ export class SidebarUI {
       } else {
         this.eqTipBox.classList.add("hidden");
       }
+      this.inpCustomColor.disabled = false;
+      this.inpCustomColor.value = item.colorHex;
+      this.colorSwatchesEl.querySelectorAll(".swatch-btn").forEach((b) => {
+        b.disabled = false;
+        b.classList.toggle("active", b.dataset.hex.toLowerCase() === item.colorHex.toLowerCase());
+      });
       return;
     }
 

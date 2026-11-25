@@ -2,6 +2,19 @@ import { Ableton } from "../../../ableton.js";
 import { ROLES, autoDetectRole } from "../data/roles.js";
 import { store, clamp } from "../store.js";
 import { bindReturnAReverb, paramToNorm, normToParam } from "../adapters/deviceAdapters.js";
+import { MasterLoudnessTracker } from "../engine/psychoacoustics.js";
+
+function normalizeAbletonColor(c) {
+  if (typeof c === "number") {
+    return "#" + (c & 0xffffff).toString(16).padStart(6, "0");
+  }
+  const str = String(c?.hex ?? c?.numberVal ?? c ?? "#3b82f6").trim();
+  if (/^\d+$/.test(str)) {
+    return "#" + (parseInt(str, 10) & 0xffffff).toString(16).padStart(6, "0");
+  }
+  const clean = str.replace(/^#+/, "");
+  return /^[0-9a-f]{6}$/i.test(clean) ? "#" + clean.toLowerCase() : "#3b82f6";
+}
 
 function createThrottledSetter(fn, ms = 35) {
   let last = 0;
@@ -27,6 +40,10 @@ class AbletonService {
     this.unsubs = [];
     this.reverbSetDecayLive = null;
     this.reverbSetPredelayLive = null;
+    this.masterTracker = new MasterLoudnessTracker(3000);
+    this.masterLeft = 0;
+    this.masterRight = 0;
+    this.lastMasterEmit = 0;
   }
 
   async connect() {
@@ -36,6 +53,12 @@ class AbletonService {
 
     await this.ableton.song.addListener("is_playing", (v) => {
       store.isPlaying = Boolean(v);
+      if (!store.isPlaying) {
+        this.masterTracker.reset();
+        store.masterStats.shortTermLufs = -Infinity;
+        store.masterStats.clipping = false;
+        store.emit("master-meter");
+      }
       store.emit("playstate", store.isPlaying);
     });
   }
@@ -55,9 +78,14 @@ class AbletonService {
       const t = tracks[i];
       const id = String(t.raw.id);
       const name = t.raw.name || `Track ${i + 1}`;
-      const colorHex = "#" + (t.raw.color ?? 0x3b82f6).toString(16).padStart(6, "0");
-      const isGroup = Boolean(await t.get("is_foldable"));
-      const isGrouped = Boolean(await t.get("is_grouped"));   
+      const colorHex = normalizeAbletonColor(t.raw.color);
+
+      let isGroup = false;
+      let isGrouped = false;
+      try {
+        isGroup = Boolean(await t.get("is_foldable"));
+        isGrouped = Boolean(await t.get("is_grouped"));
+      } catch {}
 
       let groupId = null;
       if (isGrouped) {
@@ -84,7 +112,6 @@ class AbletonService {
       const mute = Boolean(await t.get("mute"));
       const solo = Boolean(await t.get("solo"));
 
-      // Preservar metadatos locales si ya existía al re-escanear
       const prev = prevById.get(id);
       const role = prev ? prev.role : autoDetectRole(name, isGroup);
       const roleCfg = ROLES[role] || ROLES.other;
@@ -100,11 +127,11 @@ class AbletonService {
         vGroupId: prev?.vGroupId || null,
         role,
         shape: prev?.shape || roleCfg.shape || "sphere",
+        sizeScale: prev?.sizeScale ?? 1.0,
         pan,
         vol,
         sendA,
         y: prev ? prev.y : roleCfg.defaultY,
-        sizeScale: prev?.sizeScale ?? 1.0,
         mute,
         solo,
         hidden: prev?.hidden || false,
@@ -125,7 +152,6 @@ class AbletonService {
 
       nextTracks.push(item);
 
-      // Suscripciones bidireccionales Ableton -> App
       try {
         const uPan = await panParam.addListener("value", (v) => {
           if (!item.isDragging) { item.pan = v; store.emit("track-changed", item); }
@@ -151,12 +177,16 @@ class AbletonService {
           store.emit("mute-solo");
         });
         const uName = await t.addListener("name", (v) => {
-          if (v && v !== item.name) {
-            item.name = v;
-            store.emit("track-renamed", item);
+          if (v && v !== item.name) { item.name = v; store.emit("track-renamed", item); }
+        });
+        const uColor = await t.addListener("color", (c) => {
+          const hex = normalizeAbletonColor(c);
+          if (hex !== item.colorHex.toLowerCase()) {
+            item.colorHex = hex;
+            store.emit("track-color-changed", item);
           }
         });
-        this.unsubs.push(uMute, uSolo, uName);
+        this.unsubs.push(uMute, uSolo, uName, uColor);
 
         if (t.raw.has_audio_output !== false) {
           const uMeter = await t.addListener("output_meter_left", (lvl) => {
@@ -171,7 +201,41 @@ class AbletonService {
 
     store.tracks = nextTracks;
     await this.scanReturnAReverb();
+    await this.bindMasterMeter();
     store.emit("tracks-loaded");
+  }
+
+  async bindMasterMeter() {
+    try {
+      const master = await this.ableton.song.get("master_track");
+      if (!master) return;
+      this.masterTracker.reset();
+      store.masterStats.connected = true;
+
+      const onSample = () => {
+        this.masterTracker.pushMeter(this.masterLeft, this.masterRight);
+        const now = performance.now();
+        if (now - this.lastMasterEmit > 110) {
+          this.lastMasterEmit = now;
+          store.masterStats.shortTermLufs = this.masterTracker.shortTermLufs;
+          store.masterStats.peakDb = this.masterTracker.peakDb;
+          store.masterStats.clipping = this.masterTracker.clipping;
+          store.emit("master-meter");
+        }
+      };
+
+      const uL = await master.addListener("output_meter_left", (v) => {
+        this.masterLeft = v || 0;
+        onSample();
+      });
+      const uR = await master.addListener("output_meter_right", (v) => {
+        this.masterRight = v || 0;
+      });
+      this.unsubs.push(uL, uR);
+    } catch (err) {
+      store.masterStats.connected = false;
+      console.warn("No se pudo suscribir al Master Meter:", err);
+    }
   }
 
   async scanReturnAReverb() {
@@ -274,6 +338,19 @@ class AbletonService {
     }
   }
 
+  async setTrackColor(item, hexColor, recordHistory = true) {
+    const clean = normalizeAbletonColor(hexColor);
+    if (clean === item.colorHex.toLowerCase()) return;
+    if (recordHistory) store.pushHistory(store.captureSnapshot());
+    item.colorHex = clean;
+    store.emit("track-color-changed", item);
+    try {
+      await item._ableton.track.set("color", parseInt(clean.slice(1), 16));
+    } catch (err) {
+      console.error("No se pudo cambiar color en Ableton:", err);
+    }
+  }
+
   async setMute(item, val, recordHistory = true) {
     if (recordHistory) store.pushHistory(store.captureSnapshot());
     item.mute = Boolean(val);
@@ -302,6 +379,8 @@ class AbletonService {
       if (!item) continue;
 
       const nameChanged = s.name && s.name !== item.name;
+      const colorChanged = s.colorHex && normalizeAbletonColor(s.colorHex) !== item.colorHex.toLowerCase();
+
       item.pan = s.pan ?? item.pan;
       item.vol = s.vol ?? item.vol;
       item.sendA = s.sendA ?? item.sendA;
@@ -315,6 +394,7 @@ class AbletonService {
       item.locked = s.locked ?? item.locked;
       item.vGroupId = s.vGroupId ?? null;
       if (nameChanged) item.name = s.name;
+      if (colorChanged) item.colorHex = normalizeAbletonColor(s.colorHex);
 
       await item._ableton.panParam.set("value", clamp(item.pan, -1, 1));
       await item._ableton.volParam.set("value", clamp(item.vol, 0, 1));
@@ -323,9 +403,8 @@ class AbletonService {
       }
       await item._ableton.track.set("mute", item.mute);
       await item._ableton.track.set("solo", item.solo);
-      if (nameChanged) {
-        try { await item._ableton.track.set("name", item.name); } catch {}
-      }
+      if (nameChanged) { try { await item._ableton.track.set("name", item.name); } catch {} }
+      if (colorChanged) { try { await item._ableton.track.set("color", parseInt(item.colorHex.slice(1), 16)); } catch {} }
     }
 
     store.emit("snapshot-applied");
