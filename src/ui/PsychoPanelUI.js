@@ -1,5 +1,6 @@
 import { LUFS_TARGETS, formatFreq } from "../engine/psychoacoustics.js";
 import { store } from "../store.js";
+import { abletonService } from "../services/abletonService.js";
 
 export class PsychoPanelUI {
   constructor() {
@@ -59,6 +60,7 @@ export class PsychoPanelUI {
     this.valLowEnd.style.color = a.lowEndPct > 48 ? "var(--warn)" : "";
 
     // Lista clicable de colisiones ("Solar Eclipse", Visual 23)
+    if (this.collisionList.matches(":hover")) return;
     this.collisionList.innerHTML = "";
     if (a.collisions.length === 0) {
       this.collisionList.innerHTML = `<div class="collision-ok">✓ Sin enmascaramiento crítico detectado</div>`;
@@ -66,18 +68,44 @@ export class PsychoPanelUI {
     }
 
     a.collisions.slice(0, 4).forEach((c) => {
-      const btn = document.createElement("button");
-      btn.className = "collision-item" + (c.isLowMud ? " is-mud" : "");
-      btn.title = "Clic para seleccionar ambas pistas y separarlas en X (Pan), Y (Freq) o Z (Vol)";
+      const card = document.createElement("div");
+      card.className = "collision-card" + (c.isLowMud ? " is-mud" : "");
+
+      const headerBtn = document.createElement("button");
+      headerBtn.className = "collision-item";
+      headerBtn.title = "Clic para seleccionar ambas pistas en el 3D";
       const mudTag = c.isLowMud ? " · Barro" : "";
-      btn.innerHTML =
+      headerBtn.innerHTML =
         `<span class="col-names">⚠ ${c.a.name} ↔ ${c.b.name}</span>` +
         `<span class="col-meta">${c.overlapPct}% · ${formatFreq(c.avgHz)}${mudTag}</span>`;
-      btn.addEventListener("click", () => {
-        btn.blur();
+      headerBtn.addEventListener("click", () => {
+        headerBtn.blur();
         store.setSelection([c.a.id, c.b.id]);
       });
-      this.collisionList.appendChild(btn);
+
+      const actions = document.createElement("div");
+      actions.className = "collision-actions";
+
+      const makeCarveBtn = (winner, loser) => {
+        const b = document.createElement("button");
+        const isSug = winner.id === c.suggestedWinnerId;
+        b.className = "mini-btn carve-btn" + (isSug ? " suggested" : "");
+        b.disabled = Boolean(loser.locked);
+        b.title = loser.locked
+          ? `${loser.name} está bloqueada`
+          : `Recorta EQ en ${loser.name} para abrir lugar a ${winner.name}`;
+        b.textContent = `✂ Priorizar ${winner.name}`;
+        b.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          b.blur();
+          await abletonService.carveCollision(winner, loser, c);
+        });
+        return b;
+      };
+
+      actions.append(makeCarveBtn(c.a, c.b), makeCarveBtn(c.b, c.a));
+      card.append(headerBtn, actions);
+      this.collisionList.appendChild(card);
     });
   }
 }

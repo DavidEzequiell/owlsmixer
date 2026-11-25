@@ -1,5 +1,8 @@
 import * as THREE from "three";
-import { store, HALF_H, clamp, xToPan, zToVol, zToSend } from "../store.js";
+import {
+  store, HALF_H, clamp, xToPan, zToVol, zToSend,
+  formatPan, formatVolume, formatFreq, yToFreq, abletonVolToDb, getApparentVolumeLevel,
+} from "../store.js";
 import { abletonService } from "../services/abletonService.js";
 import { pickBandSlotForStrip, xToEqGain, eqYToFreq, GIBSON_EQ_STRIPS } from "../data/eqBands.js";
 
@@ -26,6 +29,8 @@ export class Interaction3D {
 
     this.wheelBeforeSnapshot = null;
     this.wheelHistoryTimer = null;
+
+    this.dragTooltipEl = document.getElementById("drag-tooltip");
 
     this.bindEvents();
   }
@@ -77,6 +82,7 @@ export class Interaction3D {
       return {
         item: tItem,
         y: tItem.y,
+         sendA: tItem.sendA,
         startPos: orb ? orb.mesh.position.clone() : new THREE.Vector3(),
       };
     });
@@ -195,6 +201,12 @@ export class Interaction3D {
           if (e.shiftKey) patch.freqHz = eqYToFreq(this.dragHit.y);
           abletonService.setEqBand(this.draggingEq.item, this.draggingEq.bandIdx, patch);
           this.stage.eqWindow.sync();
+          const b = this.draggingEq.item.eq.bands[this.draggingEq.bandIdx];
+          this.showDragTooltip(
+            `<b>[${b.bandNum}]</b> ${formatFreq(b.freqHz)} · ${b.gainDb > 0 ? "+" : ""}${b.gainDb.toFixed(1)} dB · Q ${b.q.toFixed(2)}`,
+            e.clientX,
+            e.clientY
+          );
         }
         return;
       }
@@ -229,28 +241,34 @@ export class Interaction3D {
         const delta = this.dragHit.clone().sub(this.dragStartWorld);
         if (delta.lengthSq() > 0.0004) this.dragMoved = true;
 
-        const isGibsonZ = store.settings.zMode === "gibson";
+        const zMode = store.settings.zMode;
 
         for (const st of this.dragBaseStates) {
-          if (this.dragModeY) {
-            st.item.y = clamp(st.y + delta.y, -HALF_H + 0.3, HALF_H - 0.3);
-          } else {
-            const nx = st.startPos.x + delta.x;
-            const nz = st.startPos.z + delta.z;
-            st.item.pan = xToPan(nx);
-            st.item._ableton.setPanLive(st.item.pan);
+        if (this.dragModeY) {
+          st.item.y = clamp(st.y + delta.y, -HALF_H + 0.3, HALF_H - 0.3);
+        } else {
+          const nx = st.startPos.x + delta.x;
+          const nz = st.startPos.z + delta.z;
+          st.item.pan = xToPan(nx);
+          st.item._ableton.setPanLive(st.item.pan);
 
-            if (isGibsonZ) {
-              st.item.vol = zToVol(nz);
-              st.item._ableton.setVolLive(st.item.vol);
-            } else {
-              st.item.sendA = zToSend(nz);
+          if (zMode === "spatial") {
+            st.item.sendA = zToSend(nz);
+            st.item._ableton.setSendALive(st.item.sendA);
+          } else {
+            st.item.vol = zToVol(nz);
+            st.item._ableton.setVolLive(st.item.vol);
+            if (zMode === "depth") {
+              const dz = nz - st.startPos.z;
+              st.item.sendA = clamp(st.sendA - dz * 0.09, 0, 1);
               st.item._ableton.setSendALive(st.item.sendA);
             }
           }
-          this.stage.updateOrb(st.item);
         }
+        this.stage.updateOrb(st.item);
+      }
         store.emit("track-changed", this.draggingPrimary);
+        this.showShadowTooltip(this.draggingPrimary, this.dragModeY);
       }
     });
 
@@ -263,6 +281,7 @@ export class Interaction3D {
         this.draggingEq = null;
         this.stage.controls.enabled = true;
         dom.style.cursor = "default";
+        this.hideDragTooltip();
         return;
       }
 
@@ -273,6 +292,13 @@ export class Interaction3D {
         st.item._ableton.setSendALive(st.item.sendA, true);
         st.item.isDragging = false;
       }
+
+      if (this.dragMoved && !this.dragModeY && store.settings.zMode === "depth") {
+        for (const st of this.dragBaseStates) {
+          abletonService.applyTrueDepthAir(st.item);
+        }
+      }
+
       if (this.dragMoved && this.dragBeforeSnapshot) {
         store.pushHistory(this.dragBeforeSnapshot);
       }
@@ -335,7 +361,7 @@ export class Interaction3D {
       }, 400);
 
       const delta = e.deltaY < 0 ? 0.03 : -0.03;
-      const isGibsonZ = store.settings.zMode === "gibson";
+      const isGibsonZ = store.settings.zMode !== "spatial";
 
       for (const tItem of targets) {
         if (isGibsonZ) {
@@ -374,6 +400,16 @@ export class Interaction3D {
         this.onEscape?.();
         return;
       }
+      if (e.key === "f") {
+        e.preventDefault();
+        document.body.classList.toggle("sidebar-hidden");
+        document.getElementById("btn-toggle-sidebar")?.classList.toggle(
+          "active",
+          document.body.classList.contains("sidebar-hidden")
+        );
+        this.stage.resize();
+        return;
+      }
 
       if (active?.tagName === "SELECT") return;
       const key = e.key.toLowerCase();
@@ -400,5 +436,41 @@ export class Interaction3D {
         }
       }
     });
+  }
+  showDragTooltip(html, screenX, screenY) {
+    if (!this.dragTooltipEl) return;
+    this.dragTooltipEl.innerHTML = html;
+    this.dragTooltipEl.classList.remove("hidden");
+    const rect = this.stage.viewportEl.getBoundingClientRect();
+    const tw = this.dragTooltipEl.offsetWidth || 180;
+    const th = this.dragTooltipEl.offsetHeight || 28;
+    const lx = clamp(screenX - rect.left - tw / 2, 8, rect.width - tw - 8);
+    const ly = clamp(screenY - rect.top - th - 14, 54, rect.height - th - 64);
+    this.dragTooltipEl.style.left = `${lx}px`;
+    this.dragTooltipEl.style.top = `${ly}px`;
+  }
+
+  showShadowTooltip(item, isYMode) {
+    const orb = this.stage.orbs.get(item.id);
+    if (!orb) return;
+    const p = orb.mesh.position.clone();
+    p.y = -HALF_H;
+    p.project(this.stage.camera);
+    const r = this.stage.renderer.domElement.getBoundingClientRect();
+    const sx = r.left + (p.x * 0.5 + 0.5) * r.width;
+    const sy = r.top + (-p.y * 0.5 + 0.5) * r.height;
+
+    let html;
+    if (isYMode) {
+      html = `<b>${item.name}</b> · ${formatFreq(yToFreq(item.y))}`;
+    } else {
+      const lvl = getApparentVolumeLevel(abletonVolToDb(item.vol));
+      html = `<b>${item.name}</b> · ${formatPan(item.pan)} · ${formatVolume(item.vol, store.settings.volUnit)} (L${lvl.lvl}) · Rev ${Math.round(item.sendA * 100)}%`;
+    }
+    this.showDragTooltip(html, sx, sy);
+  }
+
+  hideDragTooltip() {
+    this.dragTooltipEl?.classList.add("hidden");
   }
 }

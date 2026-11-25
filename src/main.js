@@ -32,6 +32,12 @@ async function withLoading(msg, fn) {
 }
 
 const stage = new Stage3D(viewportEl);
+stage.onLiveMixTick = () => {
+  runMixAnalysis();
+  if (store.settings.autoSize && !sidebar.singleSliderBefore && store.getSelectedTracks().length === 1) {
+    sidebar.updateInspector();
+  }
+};
 const settingsModal = new SettingsModalUI();
 
 async function performUndo() {
@@ -51,6 +57,11 @@ async function handleImportMix(data) {
   await withLoading("Cargando Mix Snapshot...", async () => {
     store.pushHistory(store.captureSnapshot());
     if (data.settings) store.updateSettings(data.settings);
+    if (Array.isArray(data.scenes)) {
+      store.scenes = data.scenes;
+      store.emit("scenes-changed");
+    }
+
     await abletonService.applySnapshot(data.snapshot);
     if (data.reverb && store.reverbInfo.connected) {
       if (typeof data.reverb.decay === "number") abletonService.setReverbDecay(data.reverb.decay, true);
@@ -170,6 +181,15 @@ document.addEventListener("mouseout", (e) => {
 // Suscripciones Store
 store.on("playstate", () => hud.syncPlayUI());
 store.on("history", () => hud.syncHistoryUI());
+store.on("banks-changed", () => hud.syncBanksUI());
+store.on("bank-saved-flash", (slot) => {
+  const btn = document.querySelector(`#mix-banks-group .bank-btn[data-bank="${slot}"]`);
+  if (!btn) return;
+  btn.classList.remove("saved-flash");
+  void btn.offsetWidth;
+  btn.classList.add("saved-flash");
+});
+store.on("flash-changed", () => hud.syncFlashUI());
 
 store.on("settings", (s) => {
   stage.applySkin(s.skin);
@@ -281,6 +301,9 @@ store.on("snapshot-applied", () => {
 });
 
 store.on("master-meter", () => psychoPanel.updateMasterMeter());
+
+store.on("scenes-changed", () => sidebar.syncScenesUI());
+store.on("song-time", (beats) => sidebar.updateSongBar(beats));
 
 async function rescanAll() {
   hud.setStatus("warn", "Escaneando...");

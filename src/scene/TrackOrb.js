@@ -159,6 +159,8 @@ export class TrackOrb {
     return computePsychoRadius(this.item, {
       freqSizing: store.settings.freqSizing,
       roleSizeFactor: roleCfg.sizeFactor,
+      autoSize: store.settings.autoSize,
+      lowCutScale: this.item._eqLowCutScale ?? 1.0,
     });
   }
 
@@ -170,7 +172,7 @@ sync(camera) {
     if (!visible) return;
 
     const x = panToX(item.pan);
-    const z = settings.zMode === "gibson" ? volToZ(item.vol) : sendToZ(item.sendA);
+    const z = settings.zMode === "spatial" ? sendToZ(item.sendA) : volToZ(item.vol);
     const baseR = this.getBaseRadius();
 
     // Evitar que las esferas gigantes de graves atraviesen el piso

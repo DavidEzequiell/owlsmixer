@@ -48,8 +48,16 @@
         <button id="btn-open-presets" class="primary">🎛 Presets</button>
       </div>
 
-      <!-- ZONA 2B: Acciones de Mix / Snapshots -->
-      <div class="toolbar-pill" aria-label="Acciones de Mix">
+      <!-- ZONA 2B: Bancos A/B/C/D, Bypass DRY & Snapshots -->
+      <div class="toolbar-pill" aria-label="Bancos y Acciones de Mix">
+        <div class="segmented" id="mix-banks-group" title="Clic: Guardar/Cargar banco · Shift+Clic o Clic Der: Sobreescribir">
+          <button data-bank="A" class="bank-btn">A</button>
+          <button data-bank="B" class="bank-btn">B</button>
+          <button data-bank="C" class="bank-btn">C</button>
+          <button data-bank="D" class="bank-btn">D</button>
+        </div>
+        <button id="btn-dry-bypass" class="btn-toggle" title="DRY: Apaga temporalmente Pan, Reverb y EQ sin tocar volúmenes para comparar">DRY</button>
+        <span class="pill-sep"></span>
         <button id="btn-save-mix" class="btn-ghost" title="Guardar Snapshot del Mix (.json)">💾 Guardar</button>
         <button id="btn-load-mix" class="btn-ghost" title="Cargar Snapshot del Mix (.json)">📂 Cargar</button>
         <input id="file-load-mix" type="file" accept=".json" class="hidden" />
@@ -61,10 +69,14 @@
         <select id="skin-select" title="Cambiar skin visual"></select>
         <span class="pill-sep"></span>
         <button id="btn-settings" class="btn-ghost" title="Opciones y Guía del libro">⚙ Opciones</button>
+        <button id="btn-toggle-sidebar" class="btn-icon" title="Ocultar/Mostrar panel lateral (Tecla F)">◧</button>
+        <button id="btn-fullscreen" class="btn-icon" title="Pantalla completa real">⛶</button>
       </div>
     </div>
 
     <div id="eq-banner" class="eq-banner hidden"></div>
+    <div id="drag-tooltip" class="drag-tooltip hidden"></div>
+
 
     <!-- ZONA 3 (Dock Inferior Central): Controles exclusivos del Render 3D -->
     <div class="render-dock" aria-label="Controles del Render 3D">
@@ -86,6 +98,8 @@
       <button id="btn-quick-reverb" class="btn-toggle active" title="Mostrar/ocultar cubos translúcidos de Reverb en el 3D">Cubos Reverb</button>
       <button id="btn-quick-levels" class="btn-toggle active" title="Mostrar/ocultar franjas VOL LVL 1-6 en el piso">Niveles Piso</button>
       <button id="btn-quick-collisions" class="btn-toggle active" title="Mostrar/ocultar alertas 3D de enmascaramiento (Solar Eclipse)">Choques</button>
+      <button id="btn-auto-size" class="btn-toggle active" title="Auto-Size: Escala esferas según Crest Factor (densidad real) y cortes <300Hz">Auto-Size</button>
+      <button id="btn-flash-freeze" class="btn-toggle" title="FLASH: Congela el pulso/Crest de los meters para posicionar cómodo">⚡ Flash</button>
 
     </div>
 
@@ -130,6 +144,25 @@
         <div id="collision-list" class="collision-list"></div>
       </div>
     </div>
+
+    <!-- Escenas por Sección / Timeline (Tanda 4) -->
+    <div class="panel-section collapsible-section collapsed" data-section="scenes" id="scenes-panel">
+      <div class="panel-title clickable-title">
+        <span><span class="sec-arrow">▶</span> Escenas / Timeline (A–D)</span>
+        <div class="title-right" onclick="event.stopPropagation()">
+          <span id="val-song-bar" class="pill-info">Compás 1</span>
+          <button id="btn-scenes-auto" class="mini-btn" title="Cambia automáticamente entre Bancos A/B/C/D según el compás en Ableton">Auto: OFF</button>
+        </div>
+      </div>
+      <div class="section-body">
+        <div class="row">
+          <button id="btn-add-scene" class="mini-btn primary-soft">+ Escena en compás actual</button>
+          <button id="btn-import-cues" class="mini-btn" title="Importar Locators/Cue Points desde Ableton Live">📍 Locators</button>
+        </div>
+        <div id="scenes-list" class="scenes-list"></div>
+      </div>
+    </div>
+
     <!-- Return A Reverb -->
     <div class="panel-section collapsible-section" data-section="reverb">
       <div class="panel-title clickable-title">
@@ -351,6 +384,7 @@
           <select id="opt-z-mode">
             <option value="gibson">Gibson (Z = Volumen, Rueda = Reverb)</option>
             <option value="spatial">Espacial (Z = Reverb, Rueda = Volumen)</option>
+            <option value="depth">True Depth (Z = Vol + Reverb inv. + Aire EQ)</option>
           </select>
         </div>
 
