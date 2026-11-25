@@ -31,10 +31,12 @@ export class SidebarUI {
     this.slPan = document.getElementById("sl-pan");
     this.valPan = document.getElementById("val-pan");
     this.slVol = document.getElementById("sl-vol");
+     this.valVol = document.getElementById("val-vol");
     
     this.slSend = document.getElementById("sl-send");
     this.valSend = document.getElementById("val-send");
     this.slY = document.getElementById("sl-y");
+    this.valY = document.getElementById("val-y");
     this.slSize = document.getElementById("sl-size");
     this.valSize = document.getElementById("val-size");
     this.btnToggleShape = document.getElementById("btn-toggle-shape");
