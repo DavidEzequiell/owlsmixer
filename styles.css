@@ -631,6 +631,71 @@ body[data-skin="gibson_90s"] .group-toggle-label { color: #111111; }
 body[data-skin="gibson_90s"] .swatch-btn { border-radius: 0; border: 1px solid #404040; }
 body[data-skin="gibson_90s"] .swatch-btn.active { border: 2px solid #000080; box-shadow: none; }
 /* =========================================================================
+   SKIN: "ABLETON LIVE 12 (DARK)"
+   ========================================================================= */
+body[data-skin="ableton_live"] {
+  --font-ui: "Inter", "Segoe UI", system-ui, sans-serif;
+}
+body[data-skin="ableton_live"] .toolbar-pill,
+body[data-skin="ableton_live"] .render-dock,
+body[data-skin="ableton_live"] .floating-window,
+body[data-skin="ableton_live"] .modal-card,
+body[data-skin="ableton_live"] .hud-help {
+  background: #242424;
+  border: 1px solid #111111;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  border-radius: 4px;
+  backdrop-filter: none;
+}
+body[data-skin="ableton_live"] button,
+body[data-skin="ableton_live"] select,
+body[data-skin="ableton_live"] .segmented,
+body[data-skin="ableton_live"] .track-item,
+body[data-skin="ableton_live"] .group-header,
+body[data-skin="ableton_live"] .scene-row,
+body[data-skin="ableton_live"] .collision-card,
+body[data-skin="ableton_live"] .master-lufs-box {
+  border-radius: 3px;
+}
+body[data-skin="ableton_live"] button.primary {
+  background: #ff8c2b;
+  border-color: #ffa654;
+  color: #111111;
+  font-weight: 700;
+}
+body[data-skin="ableton_live"] .segmented button.active,
+body[data-skin="ableton_live"] button.btn-toggle.active,
+body[data-skin="ableton_live"] button.active-toggle {
+  background: #ff8c2b;
+  border-color: #ff8c2b;
+  color: #111111;
+  font-weight: 700;
+}
+body[data-skin="ableton_live"] button.primary-soft {
+  background: rgba(255, 140, 43, 0.16);
+  border-color: #ff8c2b;
+  color: #ffb875;
+}
+body[data-skin="ableton_live"] .track-item.selected {
+  background: #2b3e4a;
+  border-color: #52c7ff;
+}
+body[data-skin="ableton_live"] .panel-title {
+  background: #1d1d1d;
+  padding: 4px 7px;
+  border-radius: 3px;
+  color: #b8b8b8;
+}
+body[data-skin="ableton_live"] .pill-info {
+  background: #1a1a1a;
+  border-color: #484848;
+  color: #52c7ff;
+  border-radius: 3px;
+}
+body[data-skin="ableton_live"] input[type="range"] {
+  accent-color: #ff8c2b;
+}
+/* =========================================================================
    PANEL PSICOACÚSTICO (US-08: LUFS, Espacio 3D y Colisiones Solar Eclipse)
    ========================================================================= */
 .psycho-top-row {
