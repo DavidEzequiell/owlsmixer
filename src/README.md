@@ -2,6 +2,7 @@
 
 Mezclador visual 3D en tiempo real para **Ableton Live** basado en *The Art of Mixing* y el *Virtual Mixer Concept* de David Gibson. Corre localmente vía **AbletonJS** o directamente en el navegador en **Modo Demo / Sandbox** (compatible con GitHub Pages).
 
+
 ---
 
 ## ✨ Novedades en `v0.0.8`
