@@ -76,13 +76,158 @@ export class SidebarUI {
     this.btnQuickEq = document.getElementById("btn-quick-eq");
     this.btnOpenEqWin = document.getElementById("btn-open-eq-win");
 
+    this.trackSearchQuery = "";
+    this.trackFilterMode = "all"; // "all" | "eq" | "visible"
+
     this.initCollapsibleSections();
     this.initReverbUI();
     this.initGroupsUI();
     this.initInspectorUI();
     this.initColorPickerUI();
+    this.initTrackSearchUI();
     this.initScenesUI();
     this.initSliderDoubleClickResets();
+
+    store.on("session-autosaved", () => this.updateAutosaveBadge(false));
+    store.on("session-restored", () => this.updateAutosaveBadge(true));
+  }
+
+  _normalizeSearch(str) {
+    return String(str || "")
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  }
+
+  initTrackSearchUI() {
+    if (!this.trackListEl?.parentNode) return;
+
+    // Indicador discreto de autoguardado junto al contador de pistas
+    if (this.trackCountEl?.parentNode && !document.getElementById("autosave-badge")) {
+      const badge = document.createElement("button");
+      badge.type = "button";
+      badge.id = "autosave-badge";
+      badge.className = "autosave-badge";
+      badge.textContent = "💾 Auto";
+      badge.title = "Autoguardado por sesión activo (clic para guardar ahora)";
+      badge.addEventListener("click", (e) => {
+        e.stopPropagation();
+        badge.blur();
+        store.saveSessionNow();
+      });
+      this.trackCountEl.parentNode.insertBefore(badge, this.trackCountEl);
+      this.autosaveBadge = badge;
+    } else {
+      this.autosaveBadge = document.getElementById("autosave-badge");
+    }
+
+    // Barra compacta de buscador + filtros rápidos encima de #track-list
+    const bar = document.createElement("div");
+    bar.className = "track-search-bar";
+    bar.innerHTML = `
+      <div class="track-search-input-wrap">
+        <span class="track-search-icon" aria-hidden="true">⌕</span>
+        <input id="track-search-input" class="track-search-input" type="text" placeholder="Buscar pista, rol o grupo... (Ctrl+F)" autocomplete="off" spellcheck="false" />
+        <button type="button" id="btn-clear-search" class="track-search-clear hidden" title="Limpiar búsqueda (Esc)">×</button>
+      </div>
+      <div class="track-filter-chips" role="group" aria-label="Filtro rápido de pistas">
+        <button type="button" class="track-filter-chip active" data-filter="all">Todas</button>
+        <button type="button" class="track-filter-chip" data-filter="eq" title="Solo pistas con EQ detectado">EQ</button>
+        <button type="button" class="track-filter-chip" data-filter="visible" title="Solo pistas visibles y sin mute">Activas</button>
+      </div>
+    `;
+    this.trackListEl.parentNode.insertBefore(bar, this.trackListEl);
+
+    this.inpTrackSearch = bar.querySelector("#track-search-input");
+    this.btnClearSearch = bar.querySelector("#btn-clear-search");
+    this.filterChipBtns = bar.querySelectorAll(".track-filter-chip");
+
+    const syncClearBtn = () => {
+      const active = Boolean(this.trackSearchQuery || this.trackFilterMode !== "all");
+      this.btnClearSearch.classList.toggle("hidden", !active);
+    };
+
+    this.inpTrackSearch.addEventListener("input", () => {
+      this.trackSearchQuery = this.inpTrackSearch.value.trim();
+      syncClearBtn();
+      this.renderTrackList();
+    });
+
+    this.inpTrackSearch.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        this.clearTrackSearch();
+        this.inpTrackSearch.blur();
+      }
+    });
+
+    this.btnClearSearch.addEventListener("click", () => {
+      this.btnClearSearch.blur();
+      this.clearTrackSearch();
+    });
+
+    this.filterChipBtns.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        btn.blur();
+        this.trackFilterMode = btn.dataset.filter || "all";
+        this.filterChipBtns.forEach((b) => b.classList.toggle("active", b === btn));
+        syncClearBtn();
+        this.renderTrackList();
+      });
+    });
+
+    // Atajo Ctrl+F para enfocar rápido el buscador de pistas
+    document.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        const tag = document.activeElement?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA") return;
+        e.preventDefault();
+        if (document.body.classList.contains("sidebar-hidden")) {
+          document.body.classList.remove("sidebar-hidden");
+          window.dispatchEvent(new Event("resize"));
+        }
+        this.inpTrackSearch.focus();
+        this.inpTrackSearch.select();
+      }
+    });
+  }
+
+  clearTrackSearch() {
+    this.trackSearchQuery = "";
+    this.trackFilterMode = "all";
+    if (this.inpTrackSearch) this.inpTrackSearch.value = "";
+    this.btnClearSearch?.classList.add("hidden");
+    this.filterChipBtns?.forEach((b) => b.classList.toggle("active", b.dataset.filter === "all"));
+    this.renderTrackList();
+  }
+
+  updateAutosaveBadge(restored = false) {
+    if (!this.autosaveBadge) return;
+    const dt = store.lastAutosaveAt ? new Date(store.lastAutosaveAt) : new Date();
+    const hhmm = dt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const banksCount = Object.values(store.banks).filter(Boolean).length;
+    this.autosaveBadge.textContent = restored ? "💾 Restaurada" : "💾 Guardado";
+    this.autosaveBadge.title = restored
+      ? `Sesión restaurada (${hhmm}) · ${banksCount} banco(s) y ${store.virtualGroups.length} grupo(s) · Clic para guardar ahora`
+      : `Último autoguardado: ${hhmm} · ${banksCount} banco(s) · Clic para guardar ahora`;
+    this.autosaveBadge.classList.add("saved-ok");
+    clearTimeout(this._autosaveBadgeTimer);
+    this._autosaveBadgeTimer = setTimeout(() => {
+      if (!this.autosaveBadge) return;
+      this.autosaveBadge.textContent = "💾 Auto";
+      this.autosaveBadge.classList.remove("saved-ok");
+    }, 2200);
+  }
+
+  matchesTrackFilter(item, groupLabel = "") {
+    if (this.trackFilterMode === "eq" && !item.eq?.hasDevice) return false;
+    if (this.trackFilterMode === "visible" && (item.hidden || item.mute)) return false;
+
+    if (!this.trackSearchQuery) return true;
+    const q = this._normalizeSearch(this.trackSearchQuery);
+    const roleLabel = ROLES[item.role]?.label || item.role || "";
+    const haystack = this._normalizeSearch(`${item.name} ${roleLabel} ${groupLabel}`);
+    return haystack.includes(q);
   }
 
   initCollapsibleSections() {
@@ -728,9 +873,19 @@ export class SidebarUI {
 
     const eqBadge = document.createElement("span");
     eqBadge.className = "eq-badge" + (item.eq?.hasDevice ? "" : " hidden");
-    eqBadge.textContent = "EQ";
+    eqBadge.textContent = item.eq?.adapterName === "EQ Three" ? "EQ3" : "EQ";
     eqBadge.title = item.eq?.hasDevice
-      ? `${item.eq.deviceName || "EQ Eight"} detectado — Eje Y (Tilt EQ) y EQ Window activos`
+      ? `${item.eq.deviceName || "EQ"} (${item.eq.adapterName || "Adapter"}) — Eje Y Tilt EQ activo`
+      : "";
+
+    const dynBadge = document.createElement("span");
+    dynBadge.className =
+      "dyn-badge" +
+      (item.dynamics?.hasDevice ? "" : " hidden") +
+      (item.dynamics?.hasSidechain ? " is-sc" : "");
+    dynBadge.textContent = item.dynamics?.hasSidechain ? "SC" : "CMP";
+    dynBadge.title = item.dynamics?.hasDevice
+      ? `${item.dynamics.deviceName || item.dynamics.adapterName}${item.dynamics.hasSidechain ? " · Sidechain activo" : ""}`
       : "";
 
     const btnEye = document.createElement("button");
@@ -780,48 +935,88 @@ export class SidebarUI {
       else store.setSelection([item.id]);
     });
 
-    div.append(chk, sw, nm, eqBadge, btnEye, btnLock, btnM, btnS, sel);
+    div.append(chk, sw, nm, eqBadge, dynBadge, btnEye, btnLock, btnM, btnS, sel);
     return div;
   }
 
   renderTrackList() {
     this.trackListEl.innerHTML = "";
-    this.trackCountEl.textContent = `${store.tracks.length} pistas`;
+    const isFiltering = Boolean(this.trackSearchQuery || this.trackFilterMode !== "all");
     const renderedIds = new Set();
+    let matchedCount = 0;
 
     const abletonBuses = store.tracks.filter((t) => t.isGroup);
     abletonBuses.forEach((bus) => {
       const children = store.tracks.filter((t) => t.groupId === bus.id && !t.vGroupId);
-      const isCollapsed = store.collapsedGroups.has(bus.id);
+      const busMatches = this.matchesTrackFilter(bus, bus.name);
+      const visibleChildren = isFiltering
+        ? children.filter((c) => this.matchesTrackFilter(c, bus.name))
+        : children;
+
+      renderedIds.add(bus.id);
+      children.forEach((c) => renderedIds.add(c.id));
+
+      if (isFiltering && !busMatches && visibleChildren.length === 0) return;
+
+      const isCollapsed = isFiltering ? false : store.collapsedGroups.has(bus.id);
 
       const header = document.createElement("div");
       header.className = "group-header";
-      header.innerHTML =
-        `<span class="collapse-arrow">${isCollapsed ? "▶" : "▼"}</span>` +
-        `<span class="track-swatch" style="background:${bus.colorHex}"></span>` +
-        `<span style="flex:1">📁 ${bus.name} (${children.length})</span>`;
+
+      const arrow = document.createElement("span");
+      arrow.className = "collapse-arrow";
+      arrow.textContent = isCollapsed ? "▶" : "▼";
+
+      const sw = document.createElement("span");
+      sw.className = "track-swatch";
+      sw.style.background = bus.colorHex;
+
+      const title = document.createElement("span");
+      title.style.flex = "1";
+      title.textContent = `📁 ${bus.name} (${visibleChildren.length})`;
+
+      header.append(arrow, sw, title);
       header.addEventListener("click", () => store.toggleCollapseGroup(bus.id));
       this.trackListEl.appendChild(header);
 
-      renderedIds.add(bus.id);
       if (!isCollapsed) {
-        this.trackListEl.appendChild(this.buildTrackRow(bus, true));
-        children.forEach((c) => { renderedIds.add(c.id); this.trackListEl.appendChild(this.buildTrackRow(c, true)); });
-      } else {
-        children.forEach((c) => renderedIds.add(c.id));
+        if (!isFiltering || busMatches) {
+          this.trackListEl.appendChild(this.buildTrackRow(bus, true));
+          matchedCount++;
+        }
+        visibleChildren.forEach((c) => {
+          this.trackListEl.appendChild(this.buildTrackRow(c, true));
+          matchedCount++;
+        });
       }
     });
 
     store.virtualGroups.forEach((vg) => {
       const children = store.tracks.filter((t) => t.vGroupId === vg.id);
-      const isCollapsed = store.collapsedGroups.has(vg.id);
+      const visibleChildren = isFiltering
+        ? children.filter((c) => this.matchesTrackFilter(c, vg.name))
+        : children;
+
+      children.forEach((c) => renderedIds.add(c.id));
+
+      if (isFiltering && visibleChildren.length === 0) return;
+
+      const isCollapsed = isFiltering ? false : store.collapsedGroups.has(vg.id);
 
       const header = document.createElement("div");
       header.className = "group-header";
-      header.innerHTML =
-        `<span class="collapse-arrow">${isCollapsed ? "▶" : "▼"}</span>` +
-        `<span class="track-swatch" style="background:${vg.color}"></span>` +
-        `<span style="flex:1">◈ ${vg.name} (${children.length})</span>`;
+
+      const arrow = document.createElement("span");
+      arrow.className = "collapse-arrow";
+      arrow.textContent = isCollapsed ? "▶" : "▼";
+
+      const sw = document.createElement("span");
+      sw.className = "track-swatch";
+      sw.style.background = vg.color;
+
+      const title = document.createElement("span");
+      title.style.flex = "1";
+      title.textContent = `◈ ${vg.name} (${visibleChildren.length})`;
 
       const btnDel = document.createElement("button");
       btnDel.className = "icon-btn";
@@ -835,8 +1030,8 @@ export class SidebarUI {
         this.renderGroupsBar();
         this.renderTrackList();
       });
-      header.appendChild(btnDel);
 
+      header.append(arrow, sw, title, btnDel);
       header.addEventListener("click", () => store.toggleCollapseGroup(vg.id));
       header.addEventListener("dragover", (e) => { e.preventDefault(); header.classList.add("drop-over"); });
       header.addEventListener("dragleave", () => header.classList.remove("drop-over"));
@@ -847,14 +1042,20 @@ export class SidebarUI {
       });
       this.trackListEl.appendChild(header);
 
-      children.forEach((c) => {
-        renderedIds.add(c.id);
-        if (!isCollapsed) this.trackListEl.appendChild(this.buildTrackRow(c, true));
-      });
+      if (!isCollapsed) {
+        visibleChildren.forEach((c) => {
+          this.trackListEl.appendChild(this.buildTrackRow(c, true));
+          matchedCount++;
+        });
+      }
     });
 
-    const standalone = store.tracks.filter((t) => !renderedIds.has(t.id));
-    if (store.virtualGroups.length > 0 || abletonBuses.length > 0) {
+    const standaloneAll = store.tracks.filter((t) => !renderedIds.has(t.id));
+    const standalone = isFiltering
+      ? standaloneAll.filter((t) => this.matchesTrackFilter(t, ""))
+      : standaloneAll;
+
+    if (!isFiltering && (store.virtualGroups.length > 0 || abletonBuses.length > 0)) {
       const ungrpHeader = document.createElement("div");
       ungrpHeader.className = "group-header";
       ungrpHeader.style.opacity = "0.75";
@@ -869,7 +1070,28 @@ export class SidebarUI {
       this.trackListEl.appendChild(ungrpHeader);
     }
 
-    standalone.forEach((t) => this.trackListEl.appendChild(this.buildTrackRow(t, false)));
+    standalone.forEach((t) => {
+      this.trackListEl.appendChild(this.buildTrackRow(t, false));
+      matchedCount++;
+    });
+
+    if (isFiltering && matchedCount === 0) {
+      const empty = document.createElement("div");
+      empty.className = "track-search-empty";
+      const txt = document.createElement("span");
+      txt.textContent = "Sin pistas que coincidan con el filtro.";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "mini-btn";
+      btn.textContent = "Limpiar filtro";
+      btn.addEventListener("click", () => this.clearTrackSearch());
+      empty.append(txt, btn);
+      this.trackListEl.appendChild(empty);
+    }
+
+    this.trackCountEl.textContent = isFiltering
+      ? `${matchedCount}/${store.tracks.length} pistas`
+      : `${store.tracks.length} pistas`;
     this.syncSelectionHighlights();
   }
 

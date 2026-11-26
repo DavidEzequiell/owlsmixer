@@ -15,9 +15,10 @@ function inferHint(err, context = "") {
     raw.includes("connect") ||
     raw.includes("socket") ||
     raw.includes("failed to fetch") ||
-    raw.includes("timeout")
+    raw.includes("timeout") ||
+    raw.includes("tiempo de espera")
   ) {
-    return "Verificá que Ableton Live esté abierto y que el Remote Script 'AbletonJS' esté activo en Preferencias → Link, Tempo & MIDI.";
+    return "Verificá que Ableton Live esté abierto con AbletonJS activo en Link, Tempo & MIDI — o entrá en Modo Demo para explorar sin Ableton.";
   }
   return "Podés reintentar la operación o resetear las preferencias guardadas si el problema persiste.";
 }
@@ -35,11 +36,29 @@ export class ErrorHandlerUI {
     this.btnDismiss = document.getElementById("btn-error-dismiss");
     this.loadingOverlay = document.getElementById("loading-overlay");
 
+    // Inyecta botón de Modo Demo en la barra de acciones del error (sin tocar index.html)
+    this.btnDemo = this._ensureDemoButton();
+
     this.retryHandler = null;
+    this.demoHandler = null;
     this.lastDiagnostic = "";
 
     this.bindEvents();
     this.installGlobalHooks();
+  }
+
+  _ensureDemoButton() {
+    let btn = document.getElementById("btn-error-demo");
+    if (btn) return btn;
+    const actions = this.btnRetry?.parentNode;
+    if (!actions) return null;
+    btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = "btn-error-demo";
+    btn.className = "primary-soft hidden";
+    btn.textContent = "🎛️ Entrar en Modo Demo";
+    actions.insertBefore(btn, this.btnRetry.nextSibling);
+    return btn;
   }
 
   bindEvents() {
@@ -52,6 +71,13 @@ export class ErrorHandlerUI {
       } else {
         window.location.reload();
       }
+    });
+
+    this.btnDemo?.addEventListener("click", async () => {
+      this.btnDemo.blur();
+      const fn = this.demoHandler;
+      this.hide();
+      if (typeof fn === "function") await fn();
     });
 
     this.btnReset?.addEventListener("click", () => {
@@ -106,7 +132,7 @@ export class ErrorHandlerUI {
     return Boolean(this.overlay && !this.overlay.classList.contains("hidden"));
   }
 
-  show({ title = "No se pudo cargar el proyecto", message = "", hint = "", error = null, onRetry = null } = {}) {
+  show({ title = "No se pudo cargar el proyecto", message = "", hint = "", error = null, onRetry = null, onDemo = null } = {}) {
     if (!this.overlay) return;
     this.loadingOverlay?.classList.add("hidden");
 
@@ -114,6 +140,9 @@ export class ErrorHandlerUI {
     const stack = error?.stack ? String(error.stack) : String(error || errMsg);
 
     this.retryHandler = onRetry;
+    this.demoHandler = onDemo;
+    if (this.btnDemo) this.btnDemo.classList.toggle("hidden", typeof onDemo !== "function");
+
     this.titleEl.textContent = title;
     this.msgEl.textContent = errMsg;
     this.hintEl.textContent = hint || inferHint(error || errMsg, title);

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Owls 3D Mixer — The Art of Mixing for Ableton</title>
-  <link rel="stylesheet" href="./styles.css?v=35" />
+  <link rel="stylesheet" href="./styles.css?v=0.0.8" />
   <script type="importmap">
     {
       "imports": {
@@ -523,10 +523,64 @@
           <img
             id="manual-diagram-img"
             src="./assets/manual_diagram.png"
-            alt="Diagrama de uso de Owls 3D Mixer"
-            class="manual-diagram-img"
-            onerror="this.parentElement.classList.add('hidden');"
+            alt="Diagrama de ejes de Owls 3D Mixer"
+            class="manual-diagram-img hidden"
+            onload="this.classList.remove('hidden'); this.nextElementSibling?.classList.add('hidden');"
+            onerror="this.classList.add('hidden');"
           />
+          <svg viewBox="0 0 560 225" class="manual-axes-svg" role="img" aria-label="Diagrama de ejes X, Y y Z">
+            <rect width="560" height="225" rx="8" fill="#0b1120"/>
+            <!-- Caja 3D -->
+            <polygon points="105,34 335,34 375,186 65,186" fill="rgba(59,130,246,0.06)" stroke="rgba(148,163,184,0.38)" stroke-width="1.2"/>
+            <rect x="105" y="34" width="230" height="106" fill="rgba(15,23,42,0.55)" stroke="rgba(148,163,184,0.42)" stroke-width="1.2"/>
+            <line x1="105" y1="140" x2="65" y2="186" stroke="rgba(148,163,184,0.4)" stroke-width="1.2"/>
+            <line x1="335" y1="140" x2="375" y2="186" stroke="rgba(148,163,184,0.4)" stroke-width="1.2"/>
+
+            <!-- Flechas de Ejes -->
+            <!-- Eje X -->
+            <line x1="76" y1="202" x2="364" y2="202" stroke="#38bdf8" stroke-width="2"/>
+            <polygon points="72,202 80,198 80,206" fill="#38bdf8"/>
+            <polygon points="368,202 360,198 360,206" fill="#38bdf8"/>
+            <text x="220" y="217" fill="#7dd3fc" font-size="10.5" font-weight="700" text-anchor="middle" font-family="sans-serif">EJE X · Paneo (L ↔ R)</text>
+
+            <!-- Eje Y -->
+            <line x1="48" y1="176" x2="48" y2="38" stroke="#a855f7" stroke-width="2"/>
+            <polygon points="48,32 44,41 52,41" fill="#a855f7"/>
+            <polygon points="48,182 44,173 52,173" fill="#a855f7"/>
+            <text x="28" y="42" fill="#d8b4fe" font-size="9" font-weight="700" text-anchor="middle" font-family="sans-serif">20 kHz</text>
+            <text x="28" y="112" fill="#c084fc" font-size="9.5" font-weight="700" text-anchor="middle" font-family="sans-serif">EJE Y</text>
+            <text x="28" y="124" fill="#94a3b8" font-size="8" text-anchor="middle" font-family="sans-serif">Tilt EQ</text>
+            <text x="28" y="179" fill="#d8b4fe" font-size="9" font-weight="700" text-anchor="middle" font-family="sans-serif">20 Hz</text>
+
+            <!-- Eje Z -->
+            <line x1="342" y1="142" x2="379" y2="184" stroke="#22c55e" stroke-width="2"/>
+            <polygon points="382,188 373,184 379,178" fill="#22c55e"/>
+            <text x="358" y="136" fill="#86efac" font-size="9" font-weight="700" font-family="sans-serif">LVL 6 (Fondo)</text>
+            <text x="382" y="196" fill="#86efac" font-size="9" font-weight="700" font-family="sans-serif">LVL 1 (Frente)</text>
+
+            <!-- Elementos internos -->
+            <rect x="172" y="54" width="96" height="58" rx="3" fill="rgba(168,85,247,0.14)" stroke="#c084fc" stroke-dasharray="3 2"/>
+            <circle cx="220" cy="134" r="24" fill="#22c55e" opacity="0.72"/>
+            <circle cx="220" cy="96" r="18" fill="#ec4899" opacity="0.92"/>
+            <ellipse cx="146" cy="98" rx="28" ry="9" fill="#3b82f6" opacity="0.82"/>
+            <ellipse cx="294" cy="98" rx="28" ry="9" fill="#3b82f6" opacity="0.82"/>
+            <circle cx="136" cy="54" r="7" fill="#eab308"/>
+
+            <!-- Leyenda derecha -->
+            <g font-family="sans-serif" font-size="10">
+              <circle cx="418" cy="48" r="7" fill="#ec4899"/>
+              <text x="432" y="52" fill="#e2e8f0" font-weight="600">Esfera: mono puntual</text>
+
+              <ellipse cx="418" cy="74" rx="11" ry="4.5" fill="#3b82f6"/>
+              <text x="432" y="78" fill="#e2e8f0" font-weight="600">Elipsoide: estéreo ancho</text>
+
+              <rect x="410" y="92" width="16" height="12" rx="2" fill="rgba(168,85,247,0.22)" stroke="#c084fc" stroke-dasharray="2 2"/>
+              <text x="432" y="102" fill="#e2e8f0" font-weight="600">Cubo: cola Reverb (Send A)</text>
+
+              <line x1="410" y1="124" x2="426" y2="124" stroke="#ef4444" stroke-width="2"/>
+              <text x="432" y="128" fill="#fca5a5" font-weight="600">Línea roja: enmascaramiento</text>
+            </g>
+          </svg>
         </div>
 
         <div class="manual-grid">
@@ -580,9 +634,16 @@
         </div>
 
         <div class="shortcuts-box">
-          <h4>Atajos de teclado y mouse</h4>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:7px;">
+            <h4 style="margin:0;">Atajos de teclado y mouse</h4>
+            <div style="display:flex; gap:5px;">
+              <button type="button" id="btn-reopen-welcome" class="mini-btn">🎓 Ver guía inicial</button>
+              <button type="button" id="btn-reopen-start" class="mini-btn">🖥 Pantalla de inicio</button>
+            </div>
+          </div>
           <div class="shortcuts-grid">
             <span><code>Space</code> Play / Pause</span>
+            <span><code>Ctrl+F</code> Buscar pista / rol</span>
             <span><code>Ctrl+Z / Ctrl+Y</code> Deshacer / Rehacer</span>
             <span><code>E</code> Alternar Mix 3D / EQ Window</span>
             <span><code>F</code> Ocultar / Mostrar Sidebar</span>
@@ -591,10 +652,8 @@
             <span><code>U</code> Quitar todos los Solos</span>
             <span><code>Esc</code> Cerrar menú / Limpiar selección</span>
             <span><code>Doble clic</code> Renombrar pista</span>
-            <span><code>Clic der. en color</code> Cambiar color de pista</span>
           </div>
         </div>
-      </div>
 
       <div id="tab-guide" class="modal-body hidden">
         <div class="book-quote">
@@ -632,7 +691,7 @@
 
       <div class="modal-footer">
         <span class="muted-note" style="margin:0;">Owls 3D Mixer · Virtual Mixer for Ableton Live</span>
-        <button id="app-version-egg" class="version-egg-btn" title="Versión actual">v0.0.7</button>
+        <button id="app-version-egg" class="version-egg-btn" title="Versión actual">v0.0.8</button>
       </div>
     </div>
   </div>

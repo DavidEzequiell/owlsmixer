@@ -1,13 +1,22 @@
-import { Ableton } from "../../../ableton.js";
+import { demoService } from "./demoService.js";
+
 import { ROLES, autoDetectRole } from "../data/roles.js";
 import { store, clamp, HALF_H } from "../store.js";
 import { computeEqYShift, computeEqLowCutScale, pickCarveBandSlot } from "../data/eqBands.js";
 import {
-  bindReturnAReverb, findTrackEqDevice, bindEqDevice, createDefaultEqBands,
-  paramToNorm, normToParam, eqNormToHz, hzToEqNorm, EQ_FILTER_TYPES,
+  bindReturnAReverb, findTrackEqDevice, findTrackDynamicsDevice, bindEqDevice, createDefaultEqBands,
+  paramToNorm, normToParam, EQ_FILTER_TYPES,
 } from "../adapters/deviceAdapters.js";
 import { MasterLoudnessTracker, computeCarvePlan, abletonVolToDb } from "../engine/psychoacoustics.js";
-
+async function loadAbletonSdk() {
+  try {
+    const mod = await import("../../../ableton.js");
+    if (!mod?.Ableton) throw new Error("Módulo ableton.js sin export Ableton.");
+    return mod.Ableton;
+  } catch (err) {
+    throw new Error("No se encontró el puente local AbletonJS (ableton.js). En la web o sin Live abierto podés usar el Modo Demo.");
+  }
+}
 function normalizeAbletonColor(c) {
   if (typeof c === "number") {
     return "#" + (c & 0xffffff).toString(16).padStart(6, "0");
@@ -38,9 +47,24 @@ function createThrottledSetter(fn, ms = 35) {
   };
 }
 
+// Pool de concurrencia controlada para no saturar el Remote Script de AbletonJS
+async function runPool(items, concurrency, fn) {
+  if (!items || items.length === 0) return;
+  let idx = 0;
+  const workerCount = Math.min(concurrency, items.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (idx < items.length) {
+      const current = idx++;
+      await fn(items[current], current);
+    }
+  });
+  await Promise.all(workers);
+}
+
 class AbletonService {
   constructor() {
-    this.ableton = new Ableton();
+    this.ableton = null;
+    this.mode = "ableton"; // "ableton" | "demo"
     this.unsubs = [];
     this.reverbSetDecayLive = null;
     this.reverbSetPredelayLive = null;
@@ -48,28 +72,93 @@ class AbletonService {
     this.masterLeft = 0;
     this.masterRight = 0;
     this.lastMasterEmit = 0;
+    this._bankBusy = false;
+    this._batchQuiet = false;
   }
 
-  async connect() {
-    await this.ableton.start();
+  isDemoMode() {
+    return this.mode === "demo";
+  }
+
+  enterDemoMode() {
+    this.clearListeners();
+    this.mode = "demo";
+    demoService.start();
+    store.emit("mode-changed", "demo");
+  }
+
+  exitDemoMode() {
+    if (this.mode === "demo") {
+      demoService.stop();
+      this.mode = "ableton";
+      store.emit("mode-changed", "ableton");
+    }
+  }
+
+  
+
+  _setBusy(busy, label = "") {
+    store.emit("busy-state", { busy: Boolean(busy), label });
+  }
+
+  // Pausa brevemente Live en operaciones pesadas (DRY inicial / cambios masivos de EQ)
+  // para liberar el socket de meters/audio y retoma en el mismo beat con continuePlaying()
+   async _withBatchAudioGuard(shouldPause, label, fn) {
+    if (this.mode === "demo") {
+      return await fn();
+    }
+    const wasPlaying = Boolean(shouldPause && store.isPlaying && this.ableton);
+    this._batchQuiet = true;
+    this._setBusy(true, label);
+    try {
+      if (wasPlaying) {
+        await this.ableton.song.stopPlaying().catch(() => {});
+      }
+      return await fn();
+    } finally {
+      if (wasPlaying) {
+        if (typeof this.ableton.song.continuePlaying === "function") {
+          await this.ableton.song.continuePlaying().catch(() => {});
+        } else {
+          await this.ableton.song.startPlaying().catch(() => {});
+        }
+      }
+      this._batchQuiet = false;
+      this._setBusy(false, "");
+    }
+  }
+
+   async connect({ timeoutMs = 4500 } = {}) {
+    this.exitDemoMode();
+    const AbletonCtor = await loadAbletonSdk();
+    this.ableton = new AbletonCtor();
+
+    await Promise.race([
+      this.ableton.start(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Tiempo de espera agotado conectando a Ableton Live (WebSocket).")), timeoutMs)
+      ),
+    ]);
+
     store.isPlaying = Boolean(await this.ableton.song.get("is_playing"));
     store.emit("playstate", store.isPlaying);
 
     await this.ableton.song.addListener("is_playing", (v) => {
       store.isPlaying = Boolean(v);
-      if (!store.isPlaying) {
+      if (!store.isPlaying && !this._batchQuiet) {
         this.masterTracker.reset();
         store.masterStats.shortTermLufs = -Infinity;
         store.masterStats.clipping = false;
         store.emit("master-meter");
         store.lastSceneRuleId = null;
-        
       }
       store.emit("playstate", store.isPlaying);
     });
+
     try {
       await this.ableton.song.addListener("current_song_time", (beats) => {
         store.currentSongBeat = Number(beats) || 0;
+        if (this._batchQuiet) return;
         const now = performance.now();
         if (now - (this._lastSongTimeEmit || 0) > 120) {
           this._lastSongTimeEmit = now;
@@ -90,7 +179,6 @@ class AbletonService {
       console.warn("Listener current_song_time omitido:", err);
     }
   }
-  
 
   clearListeners() {
     this.unsubs.forEach((u) => { try { u(); } catch {} });
@@ -104,6 +192,10 @@ class AbletonService {
   }
 
   async scanAll() {
+     if (this.mode === "demo") {
+      demoService.loadDemoSession();
+      return;
+    }
     this.clearListeners();
     const prevById = new Map(store.tracks.map((t) => [t.id, t]));
     const tracks = await this.ableton.song.get("tracks");
@@ -118,8 +210,10 @@ class AbletonService {
       let isGroup = false;
       let isGrouped = false;
       try {
-        isGroup = Boolean(await t.get("is_foldable"));
-        isGrouped = Boolean(await t.get("is_grouped"));
+        [isGroup, isGrouped] = await Promise.all([
+          t.get("is_foldable").then(Boolean).catch(() => false),
+          t.get("is_grouped").then(Boolean).catch(() => false),
+        ]);
       } catch {}
 
       let groupId = null;
@@ -133,20 +227,26 @@ class AbletonService {
       let mixer, volParam, panParam, sends, sendAParam;
       try {
         mixer = await t.get("mixer_device");
-        volParam = await mixer.get("volume");
-        panParam = await mixer.get("panning");
-        sends = await mixer.get("sends");
+        [volParam, panParam, sends] = await Promise.all([
+          mixer.get("volume"),
+          mixer.get("panning"),
+          mixer.get("sends"),
+        ]);
         sendAParam = sends && sends.length > 0 ? sends[0] : null;
       } catch {
         continue;
       }
 
-      const vol = await volParam.get("value");
-      const pan = await panParam.get("value");
-      const sendA = sendAParam ? await sendAParam.get("value") : 0;
-      const mute = Boolean(await t.get("mute"));
-      const solo = Boolean(await t.get("solo"));
-      const eqMeta = await findTrackEqDevice(t);
+      const devices = await t.get("devices").catch(() => []);
+      const [vol, pan, sendA, mute, solo, eqMeta, dynMeta] = await Promise.all([
+        volParam.get("value"),
+        panParam.get("value"),
+        sendAParam ? sendAParam.get("value") : Promise.resolve(0),
+        t.get("mute").then(Boolean),
+        t.get("solo").then(Boolean),
+        findTrackEqDevice(t, devices),
+        findTrackDynamicsDevice(t, devices),
+      ]);
 
       const prev = prevById.get(id);
       const role = prev ? prev.role : autoDetectRole(name, isGroup);
@@ -188,6 +288,12 @@ class AbletonService {
           adapterName: eqMeta?.adapter?.label || null,
           bands: createDefaultEqBands(8),
         },
+        dynamics: {
+          hasDevice: Boolean(dynMeta),
+          deviceName: dynMeta?.deviceName || null,
+          adapterName: dynMeta?.adapterName || null,
+          hasSidechain: Boolean(dynMeta?.hasSidechain),
+        },
         _ableton: {
           track: t,
           volParam,
@@ -207,184 +313,217 @@ class AbletonService {
       nextTracks.push(item);
 
       try {
-        const uPan = await panParam.addListener("value", (v) => {
-          if (!item.isDragging && performance.now() >= (item._mixWriteUntil || 0)) {
-            item.pan = v;
-            store.emit("track-changed", item);
-          }
-        });
-        const uVol = await volParam.addListener("value", (v) => {
-          if (!item.isDragging && performance.now() >= (item._mixWriteUntil || 0)) {
-            item.vol = v;
-            store.emit("track-changed", item);
-          }
-        });
-        this.unsubs.push(uPan, uVol);
-
-        if (sendAParam) {
-          const uSend = await sendAParam.addListener("value", (v) => {
-            if (!item.isDragging && performance.now() >= (item._mixWriteUntil || 0)) {
-              item.sendA = v;
+        const listenerJobs = [
+          panParam.addListener("value", (v) => {
+            if (!this._batchQuiet && !item.isDragging && performance.now() >= (item._mixWriteUntil || 0)) {
+              item.pan = v;
               store.emit("track-changed", item);
             }
-          });
-          this.unsubs.push(uSend);
-        }
+          }),
+          volParam.addListener("value", (v) => {
+            if (!this._batchQuiet && !item.isDragging && performance.now() >= (item._mixWriteUntil || 0)) {
+              item.vol = v;
+              store.emit("track-changed", item);
+            }
+          }),
+          t.addListener("mute", (v) => {
+            if (this._batchQuiet) return;
+            item.mute = Boolean(v);
+            store.emit("mute-solo");
+          }),
+          t.addListener("solo", (v) => {
+            if (this._batchQuiet) return;
+            item.solo = Boolean(v);
+            store.emit("mute-solo");
+          }),
+          t.addListener("name", (v) => {
+            if (v && v !== item.name) { item.name = v; store.emit("track-renamed", item); }
+          }),
+          t.addListener("color", (c) => {
+            const hex = normalizeAbletonColor(c);
+            if (hex !== item.colorHex.toLowerCase()) {
+              item.colorHex = hex;
+              store.emit("track-color-changed", item);
+            }
+          }),
+        ];
 
-        const uMute = await t.addListener("mute", (v) => {
-          item.mute = Boolean(v);
-          store.emit("mute-solo");
-        });
-        const uSolo = await t.addListener("solo", (v) => {
-          item.solo = Boolean(v);
-          store.emit("mute-solo");
-        });
-        const uName = await t.addListener("name", (v) => {
-          if (v && v !== item.name) { item.name = v; store.emit("track-renamed", item); }
-        });
-        const uColor = await t.addListener("color", (c) => {
-          const hex = normalizeAbletonColor(c);
-          if (hex !== item.colorHex.toLowerCase()) {
-            item.colorHex = hex;
-            store.emit("track-color-changed", item);
-          }
-        });
-        this.unsubs.push(uMute, uSolo, uName, uColor);
+        if (sendAParam) {
+          listenerJobs.push(
+            sendAParam.addListener("value", (v) => {
+              if (!this._batchQuiet && !item.isDragging && performance.now() >= (item._mixWriteUntil || 0)) {
+                item.sendA = v;
+                store.emit("track-changed", item);
+              }
+            })
+          );
+        }
 
         if (t.raw.has_audio_output !== false) {
-          const uMeter = await t.addListener("output_meter_left", (lvl) => {
-            item.meter = lvl || 0;
-          });
-          this.unsubs.push(uMeter);
+          listenerJobs.push(
+            t.addListener("output_meter_left", (lvl) => {
+              if (!this._batchQuiet) item.meter = lvl || 0;
+            })
+          );
         }
+
+        const unsubs = await Promise.all(listenerJobs);
+        this.unsubs.push(...unsubs);
       } catch (err) {
         console.warn("Listener omitido en", name, err);
       }
     }
 
     store.tracks = nextTracks;
-    await this.scanReturnAReverb();
-    await this.bindMasterMeter();
+    await Promise.all([this.scanReturnAReverb(), this.bindMasterMeter()]);
     store.emit("tracks-loaded");
     if (Object.values(store.banks).every((b) => !b) && store.tracks.length > 0) {
       store.saveBank("A");
     }
 
     // Si ya había pistas seleccionadas tras un rescan, bindea su EQ on-demand
-    for (const sel of store.getSelectedTracks()) {
-      if (sel.eq.hasDevice) this.ensureEqBound(sel);
+    const selWithEq = store.getSelectedTracks().filter((sel) => sel.eq.hasDevice);
+    if (selWithEq.length > 0) {
+      await runPool(selWithEq, 3, (sel) => this.ensureEqBound(sel));
     }
   }
 
   // =========================================================================
-  // EQ EIGHT / EQ ADAPTER (Carga y suscripción On-Demand por pista)
+  // EQ EIGHT / EQ ADAPTER (Carga y suscripción On-Demand paralela por pista)
   // =========================================================================
-  async ensureEqBound(item) {
+  async ensureEqBound(item, { silent = false } = {}) {
     if (!item || !item._ableton?.track) return false;
     if (item.eq.bound) return true;
-    if (item.eq.loading) return false;
+    if (item._eqBindPromise) return item._eqBindPromise;
 
     item.eq.loading = true;
-    try {
-      // Si el usuario agregó el EQ Eight después de escanear, lo buscamos una vez
-      if (!item._ableton.eqDevice) {
-        const eqMeta = await findTrackEqDevice(item._ableton.track);
-        if (!eqMeta) {
-          item.eq.hasDevice = false;
-          return false;
+    item._eqBindPromise = (async () => {
+      try {
+        if (!item._ableton.eqDevice) {
+          const eqMeta = await findTrackEqDevice(item._ableton.track);
+          if (!eqMeta) {
+            item.eq.hasDevice = false;
+            return false;
+          }
+          item._ableton.eqDevice = eqMeta.device;
+          item._ableton.eqAdapter = eqMeta.adapter;
+          item.eq.hasDevice = true;
+          item.eq.deviceName = eqMeta.deviceName;
+          item.eq.adapterName = eqMeta.adapter.label;
         }
-        item._ableton.eqDevice = eqMeta.device;
-        item._ableton.eqAdapter = eqMeta.adapter;
-        item.eq.hasDevice = true;
-        item.eq.deviceName = eqMeta.deviceName;
-        item.eq.adapterName = eqMeta.adapter.label;
-      }
 
-      const binding = await bindEqDevice(item._ableton.eqDevice, item._ableton.eqAdapter);
-      if (!binding) return false;
+        const binding = await bindEqDevice(item._ableton.eqDevice, item._ableton.eqAdapter);
+        if (!binding) return false;
 
-      item._ableton.eqBinding = binding;
-      item._ableton.eqBandSetters = [];
+        item._ableton.eqBinding = binding;
+        item._ableton.eqBandSetters = new Array(binding.bands.length);
 
-      const safeSet = async (param, val) => {
-        try { await param.set("value", val); } catch (e) { console.warn("EQ set error:", e); }
-      };
-
-      for (let i = 0; i < binding.bands.length; i++) {
-        const bp = binding.bands[i];
-        const bandState = item.eq.bands[i];
-
-        const [rawOn, rawType, rawFreq, rawGain, rawQ] = await Promise.all([
-          bp.onParam ? bp.onParam.get("value") : 0,
-          bp.typeParam ? bp.typeParam.get("value") : bandState.type,
-          bp.freqParam ? bp.freqParam.get("value") : 0.5,
-          bp.gainParam ? bp.gainParam.get("value") : 0,
-          bp.qParam ? bp.qParam.get("value") : 0.38,
-        ]);
-
-        bandState.on = Boolean(rawOn >= 0.5);
-        bandState.type = Math.round(rawType ?? bandState.type);
-        bandState.freqHz = bp.freqParam
-          ? binding.adapter.normToFreq(paramToNorm(bp.freqParam, rawFreq))
-          : bandState.freqHz;
-        bandState.gainDb = bp.gainParam ? Number(rawGain) || 0 : 0;
-        bandState.q = bp.qParam ? paramToNorm(bp.qParam, rawQ) : 0.38;
-
-        item._ableton.eqBandSetters.push({
-          setFreq: bp.freqParam
-            ? createThrottledSetter((hz) => {
-                const n = binding.adapter.freqToNorm(hz);
-                safeSet(bp.freqParam, normToParam(bp.freqParam, n));
-              })
-            : null,
-          setGain: bp.gainParam
-            ? createThrottledSetter((db) => {
-                const min = bp.gainParam._bounds?.min ?? -15;
-                const max = bp.gainParam._bounds?.max ?? 15;
-                safeSet(bp.gainParam, clamp(db, min, max));
-              })
-            : null,
-          setQ: bp.qParam
-            ? createThrottledSetter((q01) => safeSet(bp.qParam, normToParam(bp.qParam, q01)))
-            : null,
-        });
-
-        // Listeners bidireccionales desde Live -> UI
-        const attach = async (param, onVal) => {
-          if (!param) return;
-          try {
-            const u = await param.addListener("value", (v) => {
-              if (performance.now() < bandState._localWriteUntil) return;
-              onVal(v);
-              this.syncEqToTrackY(item);
-              store.emit("eq-changed", item);
-            });
-            item._ableton.eqUnsubs.push(u);
-          } catch {}
+        const safeSet = async (param, val) => {
+          try { await param.set("value", val); } catch (e) { console.warn("EQ set error:", e); }
         };
 
-        await attach(bp.onParam, (v) => { bandState.on = Boolean(v >= 0.5); });
-        await attach(bp.typeParam, (v) => { bandState.type = Math.round(v); });
-        await attach(bp.freqParam, (v) => {
-          bandState.freqHz = binding.adapter.normToFreq(paramToNorm(bp.freqParam, v));
-        });
-        await attach(bp.gainParam, (v) => { bandState.gainDb = Number(v) || 0; });
-        await attach(bp.qParam, (v) => { bandState.q = paramToNorm(bp.qParam, v); });
-      }
+        // Leer todas las bandas del adapter en paralelo
+        const rawBands = await Promise.all(
+          binding.bands.map((bp, i) => {
+            const bandState = item.eq.bands[i];
+            return Promise.all([
+              bp.onParam ? bp.onParam.get("value") : 0,
+              bp.typeParam ? bp.typeParam.get("value") : bandState.type,
+              bp.freqParam ? bp.freqParam.get("value") : 0.5,
+              bp.gainParam ? bp.gainParam.get("value") : 0,
+              bp.qParam ? bp.qParam.get("value") : 0.38,
+            ]);
+          })
+        );
 
-      item.eq.bound = true;
-      store.backfillBankEq(item);
-      this.syncEqToTrackY(item);
-      store.emit("eq-changed", item);
-      return true;
-    } catch (err) {
-      console.warn("No se pudo bindear EQ en", item.name, err);
-      return false;
-    } finally {
-      item.eq.loading = false;
-      
-    }
-    
+        const attachJobs = [];
+        for (let i = 0; i < binding.bands.length; i++) {
+          const bp = binding.bands[i];
+          const bandState = item.eq.bands[i];
+          const [rawOn, rawType, rawFreq, rawGain, rawQ] = rawBands[i];
+
+          const rawToGainDb = (val) =>
+            typeof binding.adapter.gainParamToDb === "function"
+              ? binding.adapter.gainParamToDb(bp.gainParam, val)
+              : Number(val) || 0;
+          const dbToRawGain = (dbVal) =>
+            typeof binding.adapter.dbToGainParam === "function"
+              ? binding.adapter.dbToGainParam(bp.gainParam, dbVal)
+              : clamp(dbVal, bp.gainParam?._bounds?.min ?? -15, bp.gainParam?._bounds?.max ?? 15);
+
+          bandState.on = Boolean(rawOn >= 0.5);
+          bandState.type = Math.round(rawType ?? bandState.type);
+          bandState.freqHz = bp.freqParam
+            ? binding.adapter.normToFreq(paramToNorm(bp.freqParam, rawFreq))
+            : bandState.freqHz;
+          bandState.gainDb = bp.gainParam ? rawToGainDb(rawGain) : 0;
+          bandState.q = bp.qParam ? paramToNorm(bp.qParam, rawQ) : 0.38;
+
+          item._ableton.eqBandSetters[i] = {
+            setFreq: bp.freqParam
+              ? createThrottledSetter((hz) => {
+                  const n = binding.adapter.freqToNorm(hz);
+                  safeSet(bp.freqParam, normToParam(bp.freqParam, n));
+                })
+              : null,
+            setGain: bp.gainParam
+              ? createThrottledSetter((db) => safeSet(bp.gainParam, dbToRawGain(db)))
+              : null,
+            setQ: bp.qParam
+              ? createThrottledSetter((q01) => safeSet(bp.qParam, normToParam(bp.qParam, q01)))
+              : null,
+          };
+
+          const queueAttach = (param, onVal) => {
+            if (!param) return;
+            attachJobs.push(
+              param
+                .addListener("value", (v) => {
+                  if (this._batchQuiet || performance.now() < bandState._localWriteUntil) return;
+                  onVal(v);
+                  this.syncEqToTrackY(item);
+                  store.emit("eq-changed", item);
+                })
+                .then((u) => item._ableton.eqUnsubs.push(u))
+                .catch(() => {})
+            );
+          };
+
+          queueAttach(bp.onParam, (v) => { bandState.on = Boolean(v >= 0.5); });
+          queueAttach(bp.typeParam, (v) => { bandState.type = Math.round(v); });
+          queueAttach(bp.freqParam, (v) => {
+            bandState.freqHz = binding.adapter.normToFreq(paramToNorm(bp.freqParam, v));
+          });
+          queueAttach(bp.gainParam, (v) => { bandState.gainDb = rawToGainDb(v); });
+          queueAttach(bp.qParam, (v) => { bandState.q = paramToNorm(bp.qParam, v); });
+        }
+
+        // Suscribir listeners de las bandas en paralelo
+        await Promise.all(attachJobs);
+
+        item.eq.bound = true;
+        store.backfillBankEq(item);
+        if (!silent) {
+          this.syncEqToTrackY(item);
+          store.emit("eq-changed", item);
+        } else {
+          item._eqLowCutScale = computeEqLowCutScale(item.eq.bands);
+          item.eqCuts = item.eq.bands
+            .filter((b) => b.on && b.gainDb < -0.5 && b.type >= 2 && b.type <= 5)
+            .map((b) => ({ freqHz: b.freqHz, gainDb: b.gainDb }));
+          item._lastEqYShift = computeEqYShift(item.eq.bands);
+        }
+        return true;
+      } catch (err) {
+        console.warn("No se pudo bindear EQ en", item.name, err);
+        return false;
+      } finally {
+        item.eq.loading = false;
+        item._eqBindPromise = null;
+      }
+    })();
+
+    return item._eqBindPromise;
   }
 
   async setEqBand(item, bandIndex, patch, { immediate = false, recordHistory = false, force = false } = {}) {
@@ -403,29 +542,32 @@ class AbletonService {
 
     band._localWriteUntil = performance.now() + (force ? 950 : 280);
 
+    const writes = [];
     if (typeof patch.on === "boolean") {
       band.on = patch.on;
-      if (bp.onParam) await bp.onParam.set("value", band.on ? 1 : 0).catch(() => {});
+      if (bp.onParam) writes.push(bp.onParam.set("value", band.on ? 1 : 0).catch(() => {}));
     }
     if (typeof patch.type === "number") {
       band.type = Math.round(clamp(patch.type, 0, 7));
-      if (bp.typeParam) await bp.typeParam.set("value", band.type).catch(() => {});
+      if (bp.typeParam) writes.push(bp.typeParam.set("value", band.type).catch(() => {}));
     }
     if (typeof patch.freqHz === "number") {
       band.freqHz = clamp(patch.freqHz, 10, 22000);
       if (immediate && bp.freqParam) {
         const n = item._ableton.eqBinding.adapter.freqToNorm(band.freqHz);
-        await bp.freqParam.set("value", normToParam(bp.freqParam, n)).catch(() => {});
+        writes.push(bp.freqParam.set("value", normToParam(bp.freqParam, n)).catch(() => {}));
       } else {
         setters?.setFreq?.(band.freqHz, false);
       }
     }
     if (typeof patch.gainDb === "number") {
-      const min = bp.gainParam?._bounds?.min ?? -15;
-      const max = bp.gainParam?._bounds?.max ?? 15;
-      band.gainDb = clamp(patch.gainDb, min, max);
+      const adapter = item._ableton.eqBinding?.adapter;
+      band.gainDb = clamp(patch.gainDb, -18, 18);
       if (immediate && bp.gainParam) {
-        await bp.gainParam.set("value", band.gainDb).catch(() => {});
+        const targetVal = typeof adapter?.dbToGainParam === "function"
+          ? adapter.dbToGainParam(bp.gainParam, band.gainDb)
+          : clamp(band.gainDb, bp.gainParam._bounds?.min ?? -15, bp.gainParam._bounds?.max ?? 15);
+        writes.push(bp.gainParam.set("value", targetVal).catch(() => {}));
       } else {
         setters?.setGain?.(band.gainDb, false);
       }
@@ -433,11 +575,13 @@ class AbletonService {
     if (typeof patch.q === "number") {
       band.q = clamp(patch.q, 0, 1);
       if (immediate && bp.qParam) {
-        await bp.qParam.set("value", normToParam(bp.qParam, band.q)).catch(() => {});
+        writes.push(bp.qParam.set("value", normToParam(bp.qParam, band.q)).catch(() => {}));
       } else {
         setters?.setQ?.(band.q, false);
       }
     }
+
+    if (writes.length > 0) await Promise.all(writes);
 
     if (!force) {
       this.syncEqToTrackY(item);
@@ -452,18 +596,22 @@ class AbletonService {
 
     if (recordHistory) store.pushHistory(store.captureSnapshot());
 
-    for (const cfg of bandConfigs) {
-      const idx = (cfg.bandNum ?? 1) - 1;
-      if (idx < 0 || idx >= 8) continue;
-      await this.setEqBand(item, idx, cfg, { immediate: true, recordHistory: false });
-    }
+    await Promise.all(
+      bandConfigs.map((cfg) => {
+        const idx = (cfg.bandNum ?? 1) - 1;
+        if (idx < 0 || idx >= 8) return Promise.resolve();
+        return this.setEqBand(item, idx, cfg, { immediate: true, recordHistory: false, force: true });
+      })
+    );
+    this.syncEqToTrackY(item);
+    store.emit("eq-changed", item);
     return true;
   }
+
   async carveCollision(winner, loser, collision) {
     if (!winner || !loser || loser.locked) return false;
     const plan = computeCarvePlan(winner, loser, collision);
 
-    // Si tiene EQ Eight, aplicamos recorte quirúrgico en la banda adecuada
     if (loser.eq?.hasDevice) {
       const ok = await this.ensureEqBound(loser);
       if (ok) {
@@ -490,7 +638,6 @@ class AbletonService {
       }
     }
 
-    // Fallback si la pista no tiene EQ Eight: separa levemente en Pan (X)
     store.pushHistory(store.captureSnapshot());
     const dir = loser.pan === winner.pan ? (loser.index % 2 === 0 ? -1 : 1) : Math.sign(loser.pan - winner.pan);
     loser.pan = clamp(loser.pan + dir * 0.22, -1, 1);
@@ -498,6 +645,7 @@ class AbletonService {
     store.emit("track-changed", loser);
     return true;
   }
+
   syncEqToTrackY(item) {
     if (!item?.eq?.bound) return;
     item._eqLowCutScale = computeEqLowCutScale(item.eq.bands);
@@ -508,7 +656,6 @@ class AbletonService {
     const nextShift = computeEqYShift(item.eq.bands);
     const prevShift = item._lastEqYShift || 0;
 
-    // Si el usuario está moviendo el Eje Y ahora mismo, no reescribimos item.y para evitar feedback loop
     if (item.isDragging || performance.now() < (item._yTiltLockUntil || 0)) {
       item._lastEqYShift = nextShift;
       return;
@@ -522,6 +669,7 @@ class AbletonService {
   }
 
   // Eje Y -> Tilt EQ tonal real en Ableton (Banda 6 Low-Shelf @ 220Hz + Banda 7 High-Shelf @ 3.5kHz)
+  // Eje Y -> Tilt EQ tonal real en Ableton (EQ Eight/Pro-Q Bandas 6+7, o EQ Three Low+High)
   async applyYAxisTiltEq(item, { immediate = false } = {}) {
     if (!item || item.locked || !item.eq?.hasDevice) return false;
     item._yTiltLockUntil = performance.now() + 450;
@@ -535,6 +683,16 @@ class AbletonService {
     const deltaY = item.y - baseY;
     let tiltDb = Math.round(clamp(deltaY * 3.0, -7.5, 7.5) * 10) / 10;
     if (Math.abs(tiltDb) < 0.25) tiltDb = 0;
+
+    // Soporte nativo para Ableton EQ Three (Banda 0 = Low, Banda 2 = High)
+    if (item._ableton.eqAdapter?.id === "ableton_eq_three") {
+      const clampedEq3 = clamp(tiltDb, -6, 6);
+      await Promise.all([
+        this.setEqBand(item, 0, { on: true, gainDb: -clampedEq3 }, { immediate, recordHistory: false }),
+        this.setEqBand(item, 2, { on: true, gainDb: clampedEq3 }, { immediate, recordHistory: false }),
+      ]);
+      return true;
+    }
 
     const bLow = item.eq.bands[5];
     const bHigh = item.eq.bands[6];
@@ -552,8 +710,10 @@ class AbletonService {
     if (Math.abs((bHigh.freqHz || 0) - 3500) > 80) highPatch.freqHz = 3500;
     if (Math.abs((bHigh.q || 0) - 0.38) > 0.05) highPatch.q = 0.38;
 
-    await this.setEqBand(item, 5, lowPatch, { immediate, recordHistory: false });
-    await this.setEqBand(item, 6, highPatch, { immediate, recordHistory: false });
+    await Promise.all([
+      this.setEqBand(item, 5, lowPatch, { immediate, recordHistory: false }),
+      this.setEqBand(item, 6, highPatch, { immediate, recordHistory: false }),
+    ]);
     return true;
   }
 
@@ -568,6 +728,7 @@ class AbletonService {
       store.masterStats.connected = true;
 
       const onSample = () => {
+        if (this._batchQuiet) return;
         this.masterTracker.pushMeter(this.masterLeft, this.masterRight);
         const now = performance.now();
         if (now - this.lastMasterEmit > 110) {
@@ -579,13 +740,15 @@ class AbletonService {
         }
       };
 
-      const uL = await master.addListener("output_meter_left", (v) => {
-        this.masterLeft = v || 0;
-        onSample();
-      });
-      const uR = await master.addListener("output_meter_right", (v) => {
-        this.masterRight = v || 0;
-      });
+      const [uL, uR] = await Promise.all([
+        master.addListener("output_meter_left", (v) => {
+          this.masterLeft = v || 0;
+          onSample();
+        }),
+        master.addListener("output_meter_right", (v) => {
+          this.masterRight = v || 0;
+        }),
+      ]);
       this.unsubs.push(uL, uR);
     } catch (err) {
       store.masterStats.connected = false;
@@ -613,8 +776,10 @@ class AbletonService {
         return;
       }
 
-      const rawDecay = bound.decayParam ? await bound.decayParam.get("value") : 0.45;
-      const rawPre = bound.predelayParam ? await bound.predelayParam.get("value") : 0.2;
+      const [rawDecay, rawPre] = await Promise.all([
+        bound.decayParam ? bound.decayParam.get("value") : 0.45,
+        bound.predelayParam ? bound.predelayParam.get("value") : 0.2,
+      ]);
 
       store.reverbInfo = {
         connected: true,
@@ -635,6 +800,7 @@ class AbletonService {
 
       if (bound.decayParam) {
         const uD = await bound.decayParam.addListener("value", (v) => {
+          if (this._batchQuiet) return;
           store.reverbInfo.decay = paramToNorm(bound.decayParam, v);
           store.emit("reverb-changed");
         });
@@ -642,6 +808,7 @@ class AbletonService {
       }
       if (bound.predelayParam) {
         const uP = await bound.predelayParam.addListener("value", (v) => {
+          if (this._batchQuiet) return;
           store.reverbInfo.predelay = paramToNorm(bound.predelayParam, v);
           store.emit("reverb-changed");
         });
@@ -666,6 +833,10 @@ class AbletonService {
   }
 
   async togglePlay(continueMode = false) {
+    if (this.mode === "demo") {
+      demoService.togglePlay();
+      return;
+    }
     try {
       if (store.isPlaying) {
         await this.ableton.song.stopPlaying();
@@ -720,119 +891,237 @@ class AbletonService {
     await item._ableton.track.set("solo", item.solo);
   }
 
-  async applySnapshot(snapshot) {
+  // =========================================================================
+  // SNAPSHOT / BANCOS / DRY / PRESETS (Concurrencia paralela + Diff mínimo)
+  // =========================================================================
+  async applySnapshot(snapshot, { label = "Sincronizando mezcla...", allowAudioPause = true } = {}) {
     if (!snapshot || !Array.isArray(snapshot.tracks)) return;
     if (Array.isArray(snapshot.virtualGroups)) {
       store.virtualGroups = snapshot.virtualGroups.map((g) => ({ ...g }));
     }
 
+    // Mapeo inicial y estimación de carga para decidir si conviene pausar brevemente Live
+    const pairs = [];
+    let estimatedOps = 0;
+    for (const s of snapshot.tracks) {
+      const item =
+        store.getTrackById(s.id) ||
+        store.tracks.find((t) => t.index === s.index) ||
+        store.tracks.find((t) => t.name === s.name);
+      if (!item) continue;
+      pairs.push({ item, s });
+      if (Array.isArray(s.eqBands) && item.eq?.hasDevice && !item.eq.bound) estimatedOps += 8;
+      if (Math.abs((s.pan ?? item.pan) - item.pan) > 0.002) estimatedOps++;
+      if (Math.abs((s.vol ?? item.vol) - item.vol) > 0.002) estimatedOps++;
+      if (Math.abs((s.sendA ?? item.sendA) - item.sendA) > 0.002) estimatedOps++;
+    }
+
+    const shouldPause = allowAudioPause && estimatedOps >= 18;
     const touched = [];
-    const lockUntil = performance.now() + 1000;
-    try {
-      for (const s of snapshot.tracks) {
-        const item =
-          store.getTrackById(s.id) ||
-          store.tracks.find((t) => t.index === s.index) ||
-          store.tracks.find((t) => t.name === s.name);
-        if (!item) continue;
+    const lockUntil = performance.now() + 1200;
 
-        item.isDragging = true;
-        item._mixWriteUntil = lockUntil;
-        item._yTiltLockUntil = lockUntil;
-        touched.push(item);
+    await this._withBatchAudioGuard(shouldPause, label, async () => {
+      try {
+        await runPool(pairs, 4, async ({ item, s }) => {
+          item.isDragging = true;
+          item._mixWriteUntil = lockUntil;
+          item._yTiltLockUntil = lockUntil;
+          touched.push(item);
 
-        const nextPan = clamp(s.pan ?? item.pan, -1, 1);
-        const nextVol = clamp(s.vol ?? item.vol, 0, 1);
-        const nextSend = clamp(s.sendA ?? item.sendA, 0, 1);
-        const nextMute = Boolean(s.mute ?? item.mute);
-        const nextSolo = Boolean(s.solo ?? item.solo);
-        const nameChanged = Boolean(s.name && s.name !== item.name);
-        const nextColor = s.colorHex ? normalizeAbletonColor(s.colorHex) : item.colorHex;
-        const colorChanged = nextColor.toLowerCase() !== item.colorHex.toLowerCase();
+          const nextPan = clamp(s.pan ?? item.pan, -1, 1);
+          const nextVol = clamp(s.vol ?? item.vol, 0, 1);
+          const nextSend = clamp(s.sendA ?? item.sendA, 0, 1);
+          const nextMute = Boolean(s.mute ?? item.mute);
+          const nextSolo = Boolean(s.solo ?? item.solo);
+          const nameChanged = Boolean(s.name && s.name !== item.name);
+          const nextColor = s.colorHex ? normalizeAbletonColor(s.colorHex) : item.colorHex;
+          const colorChanged = nextColor.toLowerCase() !== item.colorHex.toLowerCase();
 
-        const panChanged = Math.abs(nextPan - item.pan) > 0.002;
-        const volChanged = Math.abs(nextVol - item.vol) > 0.002;
-        const sendChanged = Math.abs(nextSend - item.sendA) > 0.002;
-        const muteChanged = nextMute !== item.mute;
-        const soloChanged = nextSolo !== item.solo;
+          const panChanged = Math.abs(nextPan - item.pan) > 0.002;
+          const volChanged = Math.abs(nextVol - item.vol) > 0.002;
+          const sendChanged = Math.abs(nextSend - item.sendA) > 0.002;
+          const muteChanged = nextMute !== item.mute;
+          const soloChanged = nextSolo !== item.solo;
 
-        item.pan = nextPan;
-        item.vol = nextVol;
-        item.sendA = nextSend;
-        item.y = s.y ?? item.y;
-        item.mute = nextMute;
-        item.solo = nextSolo;
-        item.role = s.role ?? item.role;
-        item.shape = s.shape ?? item.shape;
-        item.sizeScale = s.sizeScale ?? item.sizeScale ?? 1.0;
-        item.hidden = s.hidden ?? item.hidden;
-        item.locked = s.locked ?? item.locked;
-        item.vGroupId = s.vGroupId ?? null;
-        if (nameChanged) item.name = s.name;
-        if (colorChanged) item.colorHex = nextColor;
+          item.pan = nextPan;
+          item.vol = nextVol;
+          item.sendA = nextSend;
+          item.y = s.y ?? item.y;
+          item.mute = nextMute;
+          item.solo = nextSolo;
+          item.role = s.role ?? item.role;
+          item.shape = s.shape ?? item.shape;
+          item.sizeScale = s.sizeScale ?? item.sizeScale ?? 1.0;
+          item.hidden = s.hidden ?? item.hidden;
+          item.locked = s.locked ?? item.locked;
+          item.vGroupId = s.vGroupId ?? null;
+          if (nameChanged) item.name = s.name;
+          if (colorChanged) item.colorHex = nextColor;
 
-        if (panChanged) await item._ableton.panParam.set("value", item.pan).catch(() => {});
-        if (volChanged) await item._ableton.volParam.set("value", item.vol).catch(() => {});
-        if (sendChanged && item._ableton.sendAParam) {
-          await item._ableton.sendAParam.set("value", item.sendA).catch(() => {});
-        }
-        if (muteChanged) await item._ableton.track.set("mute", item.mute).catch(() => {});
-        if (soloChanged) await item._ableton.track.set("solo", item.solo).catch(() => {});
-        if (nameChanged) await item._ableton.track.set("name", item.name).catch(() => {});
-        if (colorChanged) {
-          await item._ableton.track.set("color", parseInt(item.colorHex.slice(1), 16)).catch(() => {});
-        }
+          const mixerWrites = [];
+          if (panChanged) mixerWrites.push(item._ableton.panParam.set("value", item.pan).catch(() => {}));
+          if (volChanged) mixerWrites.push(item._ableton.volParam.set("value", item.vol).catch(() => {}));
+          if (sendChanged && item._ableton.sendAParam) {
+            mixerWrites.push(item._ableton.sendAParam.set("value", item.sendA).catch(() => {}));
+          }
+          if (muteChanged) mixerWrites.push(item._ableton.track.set("mute", item.mute).catch(() => {}));
+          if (soloChanged) mixerWrites.push(item._ableton.track.set("solo", item.solo).catch(() => {}));
+          if (nameChanged) mixerWrites.push(item._ableton.track.set("name", item.name).catch(() => {}));
+          if (colorChanged) {
+            mixerWrites.push(item._ableton.track.set("color", parseInt(item.colorHex.slice(1), 16)).catch(() => {}));
+          }
 
-        if (Array.isArray(s.eqBands) && item.eq?.hasDevice) {
-          if (!item.eq.bound) await this.ensureEqBound(item);
-          if (item.eq.bound) {
-            for (const cfg of s.eqBands) {
-              const idx = (cfg.bandNum ?? 1) - 1;
-              const cur = item.eq.bands[idx];
-              if (!cur) continue;
-              const bandDiff =
-                cur.on !== Boolean(cfg.on) ||
-                (cfg.on && (
-                  cur.type !== cfg.type ||
-                  Math.abs(cur.freqHz - (cfg.freqHz ?? cur.freqHz)) > 1 ||
-                  Math.abs(cur.gainDb - (cfg.gainDb ?? cur.gainDb)) > 0.05 ||
-                  Math.abs(cur.q - (cfg.q ?? cur.q)) > 0.01
-                ));
-              if (bandDiff) {
-                await this.setEqBand(item, idx, cfg, { immediate: true, recordHistory: false, force: true });
+          if (mixerWrites.length > 0) await Promise.all(mixerWrites);
+
+          if (Array.isArray(s.eqBands) && item.eq?.hasDevice) {
+            if (!item.eq.bound) await this.ensureEqBound(item, { silent: true });
+            if (item.eq.bound) {
+              const eqJobs = [];
+              for (const cfg of s.eqBands) {
+                const idx = (cfg.bandNum ?? 1) - 1;
+                const cur = item.eq.bands[idx];
+                if (!cur) continue;
+
+                const wasOn = Boolean(cur.on);
+                const nextOn = Boolean(cfg.on);
+
+                if (!nextOn) {
+                  // Apagar banda solo requiere 1 write (ahorra 80% de tráfico en DRY)
+                  if (wasOn) {
+                    eqJobs.push(this.setEqBand(item, idx, { on: false }, { immediate: true, recordHistory: false, force: true }));
+                  }
+                } else {
+                  const patch = {};
+                  if (!wasOn) patch.on = true;
+                  if (typeof cfg.type === "number" && cur.type !== cfg.type) patch.type = cfg.type;
+                  if (typeof cfg.freqHz === "number" && Math.abs(cur.freqHz - cfg.freqHz) > 1) patch.freqHz = cfg.freqHz;
+                  if (typeof cfg.gainDb === "number" && Math.abs(cur.gainDb - cfg.gainDb) > 0.05) patch.gainDb = cfg.gainDb;
+                  if (typeof cfg.q === "number" && Math.abs(cur.q - cfg.q) > 0.01) patch.q = cfg.q;
+                  if (Object.keys(patch).length > 0) {
+                    eqJobs.push(this.setEqBand(item, idx, patch, { immediate: true, recordHistory: false, force: true }));
+                  }
+                }
               }
+
+              if (eqJobs.length > 0) await Promise.all(eqJobs);
+
+              item._lastEqYShift = computeEqYShift(item.eq.bands);
+              item._eqLowCutScale = computeEqLowCutScale(item.eq.bands);
+              item.eqCuts = item.eq.bands
+                .filter((b) => b.on && b.gainDb < -0.5 && b.type >= 2 && b.type <= 5)
+                .map((b) => ({ freqHz: b.freqHz, gainDb: b.gainDb }));
+              item.y = s.y ?? item.y;
             }
-            item._lastEqYShift = computeEqYShift(item.eq.bands);
-            item._eqLowCutScale = computeEqLowCutScale(item.eq.bands);
-            item.eqCuts = item.eq.bands
-              .filter((b) => b.on && b.gainDb < -0.5 && b.type >= 2 && b.type <= 5)
-              .map((b) => ({ freqHz: b.freqHz, gainDb: b.gainDb }));
-            item.y = s.y ?? item.y;
+          }
+        });
+
+        if (snapshot.reverb && store.reverbInfo.connected) {
+          if (typeof snapshot.reverb.decay === "number" && Math.abs(snapshot.reverb.decay - store.reverbInfo.decay) > 0.005) {
+            this.setReverbDecay(snapshot.reverb.decay, true);
+          }
+          if (typeof snapshot.reverb.predelay === "number" && Math.abs(snapshot.reverb.predelay - store.reverbInfo.predelay) > 0.005) {
+            this.setReverbPredelay(snapshot.reverb.predelay, true);
           }
         }
-      }
-
-      if (snapshot.reverb && store.reverbInfo.connected) {
-        if (typeof snapshot.reverb.decay === "number" && Math.abs(snapshot.reverb.decay - store.reverbInfo.decay) > 0.005) {
-          this.setReverbDecay(snapshot.reverb.decay, true);
-        }
-        if (typeof snapshot.reverb.predelay === "number" && Math.abs(snapshot.reverb.predelay - store.reverbInfo.predelay) > 0.005) {
-          this.setReverbPredelay(snapshot.reverb.predelay, true);
+      } finally {
+        const postGuard = performance.now() + 900;
+        for (const item of touched) {
+          item._mixWriteUntil = postGuard;
+          item._yTiltLockUntil = postGuard;
+          item.isDragging = false;
         }
       }
-    } finally {
-      const postGuard = performance.now() + 900;
-      for (const item of touched) {
-        item._mixWriteUntil = postGuard;
-        item._yTiltLockUntil = postGuard;
-        item.isDragging = false;
-      }
-    }
+    });
 
     store.emit("snapshot-applied");
     store.emit("eq-changed");
   }
- async handleBankAction(slot, forceSave = false) {
+
+  async applyPreset(preset) {
+    if (!preset || this._bankBusy) return false;
+    this._bankBusy = true;
+
+    try {
+      if (preset.isDefaultDry) {
+        const unbound = store.tracks.filter((t) => !t.locked && !t.isGroup && t.eq?.hasDevice && !t.eq.bound);
+        if (unbound.length > 0) {
+          let done = 0;
+          await this._withBatchAudioGuard(true, `Preparando EQ (0/${unbound.length})...`, async () => {
+            await runPool(unbound, 4, async (t) => {
+              await this.ensureEqBound(t, { silent: true });
+              done++;
+              this._setBusy(true, `Preparando EQ (${done}/${unbound.length})...`);
+            });
+          });
+        }
+
+        const before = store.captureSnapshot();
+        store.pushHistory(before);
+        const drySnap = store.buildDrySnapshot(before);
+        const mergedSnap = {
+          ...drySnap,
+          tracks: drySnap.tracks.map((t, idx) => {
+            const orig = before.tracks[idx];
+            const liveTrack = store.getTrackById(t.id);
+            return liveTrack && (liveTrack.locked || liveTrack.isGroup) ? orig : t;
+          }),
+        };
+        await this.applySnapshot(mergedSnap, { label: "Aplicando Default Dry..." });
+        return true;
+      }
+
+      store.pushHistory(store.captureSnapshot());
+
+      const targets = store.tracks.filter((item) => !item.locked && !item.isGroup && preset.roles?.[item.role]);
+      const lockUntil = performance.now() + 1000;
+
+      await this._withBatchAudioGuard(targets.length >= 10, `Aplicando ${preset.name}...`, async () => {
+        try {
+          await runPool(targets, 4, async (item) => {
+            const target = preset.roles[item.role];
+            item.isDragging = true;
+            item._mixWriteUntil = lockUntil;
+
+            const panChanged = Math.abs(target.pan - item.pan) > 0.002;
+            const volChanged = Math.abs(target.vol - item.vol) > 0.002;
+            const sendChanged = Math.abs(target.sendA - item.sendA) > 0.002;
+
+            item.pan = target.pan;
+            item.vol = target.vol;
+            item.sendA = target.sendA;
+            item.y = target.y;
+            if (target.shape) item.shape = target.shape;
+
+            const writes = [];
+            if (panChanged) writes.push(item._ableton.panParam.set("value", item.pan).catch(() => {}));
+            if (volChanged) writes.push(item._ableton.volParam.set("value", item.vol).catch(() => {}));
+            if (sendChanged && item._ableton.sendAParam) {
+              writes.push(item._ableton.sendAParam.set("value", item.sendA).catch(() => {}));
+            }
+            if (writes.length > 0) await Promise.all(writes);
+          });
+
+          if (preset.reverb && store.reverbInfo.connected) {
+            this.setReverbDecay(preset.reverb.decay, true);
+            this.setReverbPredelay(preset.reverb.predelay, true);
+          }
+        } finally {
+          const postGuard = performance.now() + 800;
+          for (const item of targets) {
+            item._mixWriteUntil = postGuard;
+            item.isDragging = false;
+          }
+        }
+      });
+
+      store.emit("snapshot-applied");
+      return true;
+    } finally {
+      this._bankBusy = false;
+    }
+  }
+
+  async handleBankAction(slot, forceSave = false) {
     if (!["A", "B", "C", "D"].includes(slot)) return;
     if (this._bankBusy) return;
     this._bankBusy = true;
@@ -843,29 +1132,25 @@ class AbletonService {
         store.dryReturnSnapshot = null;
       }
 
-      // Shift+Clic, Clic derecho, o clic directo sobre el banco YA activo -> guarda explícitamente
       if (forceSave || store.activeBank === slot) {
         store.saveBank(slot);
         store.emit("bank-saved-flash", slot);
         return;
       }
 
-      // Auto-guarda el banco del que estás saliendo (si había uno activo)
       if (store.activeBank && store.activeBank !== slot) {
         store.banks[store.activeBank] = store.captureSnapshot();
       }
 
-      // Si el banco destino está vacío, lo crea desde la mezcla actual
       if (!store.banks[slot]) {
         store.saveBank(slot);
         store.emit("bank-saved-flash", slot);
         return;
       }
 
-      // Si el banco destino ya tiene datos, lo carga en Ableton
       store.pushHistory(store.captureSnapshot());
       store.activeBank = slot;
-      await this.applySnapshot(store.banks[slot]);
+      await this.applySnapshot(store.banks[slot], { label: `Cargando Banco ${slot}...` });
       store.emit("banks-changed");
     } finally {
       this._bankBusy = false;
@@ -880,32 +1165,44 @@ class AbletonService {
         const backSnap = store.dryReturnSnapshot;
         store.isDryBypass = false;
         store.dryReturnSnapshot = null;
-        if (backSnap) await this.applySnapshot(backSnap);
+        if (backSnap) await this.applySnapshot(backSnap, { label: "Restaurando mezcla..." });
         store.emit("banks-changed");
         return;
       }
 
-      // Bindea solo las pistas con EQ Eight antes del primer DRY
-      for (const t of store.tracks) {
-        if (t.eq?.hasDevice && !t.eq.bound) await this.ensureEqBound(t);
+      // Bindeo paralelo de pistas con EQ Eight antes del primer DRY (con progreso visible)
+      const unbound = store.tracks.filter((t) => t.eq?.hasDevice && !t.eq.bound);
+      if (unbound.length > 0) {
+        let done = 0;
+        await this._withBatchAudioGuard(true, `Leyendo EQ (0/${unbound.length})...`, async () => {
+          await runPool(unbound, 4, async (t) => {
+            await this.ensureEqBound(t, { silent: true });
+            done++;
+            this._setBusy(true, `Leyendo EQ (${done}/${unbound.length})...`);
+          });
+        });
       }
 
       const baseSnap = store.captureSnapshot();
       store.dryReturnSnapshot = baseSnap;
       store.isDryBypass = true;
-      await this.applySnapshot(store.buildDrySnapshot(baseSnap));
+      await this.applySnapshot(store.buildDrySnapshot(baseSnap), { label: "Activando DRY..." });
       store.emit("banks-changed");
     } finally {
       this._bankBusy = false;
     }
   }
-  // Cambio limpio por Timeline (no ensucia Ctrl+Z ni sobreescribe el banco anterior)
+
+  // Cambio limpio por Timeline (no ensucia Ctrl+Z ni corta la reproducción)
   async applySceneBank(slot) {
     if (this._bankBusy || !store.banks[slot]) return;
     this._bankBusy = true;
     try {
       store.activeBank = slot;
-      await this.applySnapshot(store.banks[slot]);
+      await this.applySnapshot(store.banks[slot], {
+        label: `Escena → Banco ${slot}...`,
+        allowAudioPause: false,
+      });
       store.emit("banks-changed");
     } finally {
       this._bankBusy = false;
@@ -913,6 +1210,9 @@ class AbletonService {
   }
 
   async importCueLocators() {
+    if (this.mode === "demo") {
+      return demoService.importCueLocators();
+    }
     try {
       const cues = await this.ableton.song.get("cue_points");
       if (!Array.isArray(cues) || cues.length === 0) return 0;

@@ -33,7 +33,6 @@ export class HudUI {
     this.fileLoadMix = document.getElementById("file-load-mix");
     this.btnSettings = document.getElementById("btn-settings");
 
-
     this.eqBanner = document.getElementById("eq-banner");
     this.viewModeBtns = document.querySelectorAll("#view-mode-switch button[data-view]");
     this.viewModeBtns.forEach((btn) => {
@@ -147,7 +146,6 @@ export class HudUI {
       store.updateSettings({ zMode: next });
     });
 
-
     this.btnToggleSidebar = document.getElementById("btn-toggle-sidebar");
     this.btnFullscreen = document.getElementById("btn-fullscreen");
 
@@ -202,11 +200,67 @@ export class HudUI {
 
     this.btnSettings.addEventListener("click", () => { this.btnSettings.blur(); onOpenSettings(); });
 
+    this._initBusySpinner();
+    if (typeof store.on === "function") {
+      store.on("busy-state", (info) => this.setBusyState(info?.busy, info?.label));
+    }
+
     this.syncSettingsUI();
     this.syncHistoryUI();
     this.syncViewModeUI();
     this.syncBanksUI();
     this.syncWindowsMenuUI();
+  }
+
+  _initBusySpinner() {
+    if (!document.getElementById("owls-busy-spinner-style")) {
+      const st = document.createElement("style");
+      st.id = "owls-busy-spinner-style";
+      st.textContent = `
+        @keyframes owls-spin { to { transform: rotate(360deg); } }
+        #owls-busy-pill {
+          position: fixed; top: 54px; left: 50%; transform: translateX(-50%);
+          z-index: 9500; display: flex; align-items: center; gap: 8px;
+          padding: 6px 12px; border-radius: 6px;
+          background: rgba(18, 22, 34, 0.92); color: #eef2ff;
+          border: 1px solid rgba(130, 160, 255, 0.45);
+          box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+          font-size: 12px; font-weight: 600; pointer-events: none;
+        }
+        #owls-busy-pill.hidden { display: none; }
+        #owls-busy-pill .owls-spinner {
+          width: 13px; height: 13px; border-radius: 50%;
+          border: 2px solid rgba(255, 255, 255, 0.28);
+          border-top-color: #7dd3fc;
+          animation: owls-spin 0.65s linear infinite;
+          flex-shrink: 0;
+        }
+      `;
+      document.head.appendChild(st);
+    }
+
+    let pill = document.getElementById("owls-busy-pill");
+    if (!pill) {
+      pill = document.createElement("div");
+      pill.id = "owls-busy-pill";
+      pill.className = "hidden";
+      pill.innerHTML = `<span class="owls-spinner"></span><span class="owls-busy-label">Sincronizando...</span>`;
+      document.body.appendChild(pill);
+    }
+    this.busyPill = pill;
+    this.busyLabel = pill.querySelector(".owls-busy-label");
+  }
+
+  setBusyState(busy, label = "") {
+    const isBusy = Boolean(busy);
+    if (this.busyPill) {
+      this.busyPill.classList.toggle("hidden", !isBusy);
+      if (isBusy && this.busyLabel) {
+        this.busyLabel.textContent = label || "Sincronizando con Ableton...";
+      }
+    }
+    this.bankBtns?.forEach((btn) => { btn.disabled = isBusy; });
+    if (this.btnDryBypass) this.btnDryBypass.disabled = isBusy;
   }
 
   syncViewModeUI() {
@@ -284,6 +338,7 @@ export class HudUI {
       if (key) inp.checked = store.settings[key] !== false;
     });
   }
+
   syncBanksUI() {
     this.bankBtns.forEach((btn) => {
       const slot = btn.dataset.bank;
@@ -300,14 +355,15 @@ export class HudUI {
     this.btnDryBypass.classList.toggle("active", store.isDryBypass);
     this.btnDryBypass.classList.toggle("dry-on", store.isDryBypass);
   }
+
   syncFlashUI() {
     this.btnFlashFreeze.classList.toggle("active", store.flashFreeze);
     this.btnFlashFreeze.textContent = store.flashFreeze ? "❄ Congelado" : "⚡ Flash";
   }
+
   toggleSidebar() {
     const hidden = document.body.classList.toggle("sidebar-hidden");
     this.btnToggleSidebar.classList.toggle("active", hidden);
     window.dispatchEvent(new Event("resize"));
   }
-  
 }

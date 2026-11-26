@@ -1,5 +1,7 @@
-// Patrón Adapter para plugins en Ableton Live (Reverb en Return A + EQ por pista).
+// Patrón Adapter para plugins en Ableton Live (Reverb Return A, EQ y Dinámica por pista).
 // Nota AbletonJS v5: param.raw no incluye min/max; se leen una vez vía hydrateParamBounds().
+
+import { abletonVolToDb, dbToAbletonVol } from "../engine/psychoacoustics.js";
 
 export const REVERB_ADAPTERS = [
   {
@@ -40,7 +42,7 @@ export const REVERB_ADAPTERS = [
 ];
 
 // =========================================================================
-// EQ ADAPTERS & CONVERSIÓN LOGARÍTMICA EXACTA (10 Hz .. 22.000 Hz)
+// EQ ADAPTERS & CONVERSIÓN LOGARÍTMICA EXACTA
 // =========================================================================
 export const EQ_FREQ_MIN = 10;
 export const EQ_FREQ_MAX = 22000;
@@ -54,6 +56,16 @@ export function eqNormToHz(norm) {
 export function hzToEqNorm(hz) {
   const f = Math.max(EQ_FREQ_MIN, Math.min(EQ_FREQ_MAX, Number(hz) || 1000));
   return Math.log(f / EQ_FREQ_MIN) / Math.log(EQ_FREQ_RATIO);
+}
+
+// FabFilter Pro-Q 3/4 opera entre 10 Hz y 30.000 Hz
+function proQNormToHz(norm) {
+  const n = Math.max(0, Math.min(1, Number(norm) || 0));
+  return 10 * Math.pow(3000, n);
+}
+function hzToProQNorm(hz) {
+  const f = Math.max(10, Math.min(30000, Number(hz) || 1000));
+  return Math.log(f / 10) / Math.log(3000);
 }
 
 // Índices estándar de EQ Eight Filter Type A (0..7)
@@ -76,13 +88,103 @@ export const EQ_ADAPTERS = [
     matchDevice: (name) => name === "eq eight" || name.includes("eq eight"),
     freqToNorm: hzToEqNorm,
     normToFreq: eqNormToHz,
+    gainParamToDb: (_param, raw) => Number(raw) || 0,
+    dbToGainParam: (param, db) => {
+      const min = param?._bounds?.min ?? -15;
+      const max = param?._bounds?.max ?? 15;
+      return Math.max(min, Math.min(max, db));
+    },
     getBandParamNames: (n) => ({
-      on: `${n} filter on a`,
-      type: `${n} filter type a`,
-      freq: `${n} frequency a`,
-      gain: `${n} gain a`,
-      q: `${n} resonance a`,
+      on: [`${n} filter on a`],
+      type: [`${n} filter type a`],
+      freq: [`${n} frequency a`],
+      gain: [`${n} gain a`],
+      q: [`${n} resonance a`],
     }),
+  },
+  {
+    id: "fabfilter_pro_q",
+    label: "FabFilter Pro-Q",
+    bandCount: 8,
+    matchDevice: (name) => name.includes("pro-q") || name.includes("pro q"),
+    freqToNorm: hzToProQNorm,
+    normToFreq: proQNormToHz,
+    gainParamToDb: (param, raw) => {
+      const min = param?._bounds?.min ?? 0;
+      const max = param?._bounds?.max ?? 1;
+      // Si VST3 expone 0..1, 0.5 = 0 dB (-30..+30 dB); si expone dB directos, devolver tal cual
+      if (min >= 0 && max <= 1.01) return (paramToNorm(param, raw) - 0.5) * 60;
+      return Number(raw) || 0;
+    },
+    dbToGainParam: (param, db) => {
+      const min = param?._bounds?.min ?? 0;
+      const max = param?._bounds?.max ?? 1;
+      if (min >= 0 && max <= 1.01) {
+        return normToParam(param, Math.max(0, Math.min(1, db / 60 + 0.5)));
+      }
+      return Math.max(min, Math.min(max, db));
+    },
+    getBandParamNames: (n) => ({
+      on: [`band ${n} used`, `band ${n} enabled`],
+      type: [`band ${n} shape`],
+      freq: [`band ${n} frequency`],
+      gain: [`band ${n} gain`],
+      q: [`band ${n} q`],
+    }),
+  },
+  {
+    id: "ableton_eq_three",
+    label: "EQ Three",
+    bandCount: 3,
+    matchDevice: (name) => name === "eq three" || name.includes("eq three"),
+    freqToNorm: hzToEqNorm,
+    normToFreq: eqNormToHz,
+    gainParamToDb: (_param, raw) => {
+      const db = abletonVolToDb(Number(raw) || 0);
+      return Number.isFinite(db) ? Math.max(-18, Math.min(6, db)) : -18;
+    },
+    dbToGainParam: (_param, db) => dbToAbletonVol(Math.max(-18, Math.min(6, db))),
+    getBandParamNames: (n) => {
+      if (n === 1) return { on: ["lowon", "low on"], type: [], freq: ["freqlo", "freq lo"], gain: ["gainlo", "gain lo", "low gain"], q: [] };
+      if (n === 2) return { on: ["midon", "mid on"], type: [], freq: [], gain: ["gainmid", "gain mid", "mid gain"], q: [] };
+      return { on: ["highon", "high on"], type: [], freq: ["freqhi", "freq hi"], gain: ["gainhi", "gain hi", "high gain"], q: [] };
+    },
+  },
+];
+
+// =========================================================================
+// DYNAMICS / COMPRESSOR ADAPTERS (Detección rápida + Sidechain badge)
+// =========================================================================
+export const DYNAMICS_ADAPTERS = [
+  {
+    id: "ableton_compressor",
+    label: "Compressor",
+    matchDevice: (name) => name === "compressor" || (name.includes("compressor") && !name.includes("glue") && !name.includes("multiband")),
+    sidechainNames: ["s/c on", "sidechain", "s/c listen", "external"],
+  },
+  {
+    id: "ableton_glue_comp",
+    label: "Glue Compressor",
+    matchDevice: (name) => name.includes("glue compressor"),
+    sidechainNames: ["s/c on", "sidechain", "external"],
+  },
+  {
+    id: "fabfilter_pro_c",
+    label: "FabFilter Pro-C",
+    matchDevice: (name) => name.includes("pro-c") || name.includes("pro c"),
+    sidechainNames: ["side chain", "sidechain", "ext"],
+  },
+  {
+    id: "ableton_multiband",
+    label: "Multiband Dynamics",
+    matchDevice: (name) => name.includes("multiband"),
+    sidechainNames: [],
+  },
+  {
+    id: "generic_limiter",
+    label: "Limiter",
+    matchDevice: (name) => name.includes("limiter") || name.includes("pro-l"),
+    sidechainNames: [],
   },
 ];
 
@@ -99,12 +201,15 @@ export function createDefaultEqBands(count = 8) {
   }));
 }
 
-function findParamByNames(params, candidates) {
-  for (const cand of candidates) {
+function findParamByNames(params, candidates = []) {
+  const list = Array.isArray(candidates) ? candidates : [candidates];
+  for (const cand of list) {
+    if (!cand) continue;
     const hit = params.find((p) => (p.raw?.name || "").toLowerCase().trim() === cand);
     if (hit) return hit;
   }
-  for (const cand of candidates) {
+  for (const cand of list) {
+    if (!cand) continue;
     const hit = params.find((p) => (p.raw?.name || "").toLowerCase().includes(cand));
     if (hit) return hit;
   }
@@ -117,12 +222,14 @@ export async function hydrateParamBounds(param) {
 
   let min = param.raw?.min;
   let max = param.raw?.max;
+  const fetches = [];
   if (typeof min !== "number") {
-    try { min = await param.get("min"); } catch { min = 0; }
+    fetches.push(param.get("min").then((v) => { min = v; }).catch(() => { min = 0; }));
   }
   if (typeof max !== "number") {
-    try { max = await param.get("max"); } catch { max = 1; }
+    fetches.push(param.get("max").then((v) => { max = v; }).catch(() => { max = 1; }));
   }
+  if (fetches.length > 0) await Promise.all(fetches);
 
   param._bounds = {
     min: typeof min === "number" ? min : 0,
@@ -168,8 +275,10 @@ export async function bindReturnAReverb(returnTrack) {
       continue;
     }
 
-    const decayParam = await hydrateParamBounds(findParamByNames(params, adapter.decayNames));
-    const predelayParam = await hydrateParamBounds(findParamByNames(params, adapter.predelayNames));
+    const [decayParam, predelayParam] = await Promise.all([
+      hydrateParamBounds(findParamByNames(params, adapter.decayNames)),
+      hydrateParamBounds(findParamByNames(params, adapter.predelayNames)),
+    ]);
 
     return {
       device: dev,
@@ -182,14 +291,16 @@ export async function bindReturnAReverb(returnTrack) {
   return null;
 }
 
-// Detección rápida en scanAll() sin bajar los 40+ parámetros todavía
-export async function findTrackEqDevice(track) {
+// Detección rápida en scanAll() sin bajar todos los parámetros de EQ todavía
+export async function findTrackEqDevice(track, cachedDevices = null) {
   if (!track) return null;
-  let devices = [];
-  try {
-    devices = await track.get("devices");
-  } catch {
-    return null;
+  let devices = cachedDevices;
+  if (!devices) {
+    try {
+      devices = await track.get("devices");
+    } catch {
+      return null;
+    }
   }
 
   for (const dev of devices) {
@@ -203,7 +314,47 @@ export async function findTrackEqDevice(track) {
   return null;
 }
 
-// Binding completo on-demand (solo cuando seleccionás la pista / usás EQ Window)
+// Detección rápida de Compresor / Dinámica / Sidechain para badges en la lista de pistas
+export async function findTrackDynamicsDevice(track, cachedDevices = null) {
+  if (!track) return null;
+  let devices = cachedDevices;
+  if (!devices) {
+    try {
+      devices = await track.get("devices");
+    } catch {
+      return null;
+    }
+  }
+
+  for (const dev of devices) {
+    const rawName = (dev.raw?.name || "").trim();
+    const lowerName = rawName.toLowerCase();
+    const adapter = DYNAMICS_ADAPTERS.find((a) => a.matchDevice(lowerName));
+    if (!adapter) continue;
+
+    let hasSidechain = false;
+    if (adapter.sidechainNames?.length) {
+      try {
+        const params = await dev.get("parameters");
+        const scParam = findParamByNames(params, adapter.sidechainNames);
+        if (scParam) {
+          const val = await scParam.get("value");
+          hasSidechain = Boolean(val >= 0.5);
+        }
+      } catch {}
+    }
+
+    return {
+      device: dev,
+      deviceName: rawName,
+      adapterName: adapter.label,
+      hasSidechain,
+    };
+  }
+  return null;
+}
+
+// Binding completo on-demand (paralelo para máxima velocidad)
 export async function bindEqDevice(device, adapter) {
   if (!device || !adapter) return null;
   let params = [];
@@ -213,33 +364,33 @@ export async function bindEqDevice(device, adapter) {
     return null;
   }
 
-  const byLower = new Map();
-  for (const p of params) {
-    const key = (p.raw?.name || "").toLowerCase().trim();
-    if (key) byLower.set(key, p);
-  }
+  const bandNumbers = Array.from({ length: adapter.bandCount }, (_, i) => i + 1);
+  const bands = await Promise.all(
+    bandNumbers.map(async (n) => {
+      const names = adapter.getBandParamNames(n);
+      const onParam = findParamByNames(params, names.on);
+      const typeParam = findParamByNames(params, names.type);
+      const [freqParam, gainParam, qParam] = await Promise.all([
+        hydrateParamBounds(findParamByNames(params, names.freq)),
+        hydrateParamBounds(findParamByNames(params, names.gain)),
+        hydrateParamBounds(findParamByNames(params, names.q)),
+      ]);
 
-  const bands = [];
-  for (let n = 1; n <= adapter.bandCount; n++) {
-    const names = adapter.getBandParamNames(n);
-    const onParam = byLower.get(names.on) || null;
-    const typeParam = byLower.get(names.type) || null;
-    const freqParam = await hydrateParamBounds(byLower.get(names.freq) || null);
-    const gainParam = await hydrateParamBounds(byLower.get(names.gain) || null);
-    const qParam = await hydrateParamBounds(byLower.get(names.q) || null);
+      return {
+        bandNum: n,
+        onParam,
+        typeParam,
+        freqParam,
+        gainParam,
+        qParam,
+      };
+    })
+  );
 
-    bands.push({
-      bandNum: n,
-      onParam,
-      typeParam,
-      freqParam,
-      gainParam,
-      qParam,
-    });
-  }
-
-  const outputGainParam = await hydrateParamBounds(byLower.get("output gain") || null);
-  const scaleParam = await hydrateParamBounds(byLower.get("scale") || null);
+  const [outputGainParam, scaleParam] = await Promise.all([
+    hydrateParamBounds(findParamByNames(params, ["output gain"])),
+    hydrateParamBounds(findParamByNames(params, ["scale"])),
+  ]);
 
   return {
     device,

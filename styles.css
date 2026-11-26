@@ -1761,3 +1761,388 @@ body[data-skin="macintosh_classic"] .eq-badge {
   border-color: #065f46;
   border-radius: 2px;
 }
+
+/* =========================================================================
+   BUSCADOR DE PISTAS & AUTOGUARDADO POR SESIÓN (v0.0.8 - Tanda 2)
+   ========================================================================= */
+.autosave-badge {
+  font-size: 9.5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-weight: 600;
+  margin-right: 4px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.autosave-badge.saved-ok {
+  color: #86efac;
+  border-color: rgba(34, 197, 94, 0.55);
+  background: rgba(34, 197, 94, 0.14);
+}
+
+.track-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 4px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.track-search-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.track-search-icon {
+  position: absolute;
+  left: 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.track-search-input {
+  width: 100%;
+  background: var(--bg-app);
+  color: var(--text-main);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px 22px 4px 22px;
+  font-size: 11px;
+  font-family: inherit;
+  outline: none;
+  user-select: text;
+}
+.track-search-input:focus {
+  border-color: var(--accent);
+}
+.track-search-clear {
+  position: absolute;
+  right: 3px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.track-search-clear:hover {
+  color: var(--text-main);
+  background: var(--bg-control-hover);
+}
+
+.track-filter-chips {
+  display: inline-flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.track-filter-chip {
+  padding: 3px 6px;
+  font-size: 10px;
+  border-radius: 5px;
+  color: var(--text-muted);
+}
+.track-filter-chip.active {
+  background: color-mix(in srgb, var(--accent) 24%, var(--bg-control));
+  border-color: var(--accent);
+  color: #dbeafe;
+  font-weight: 600;
+}
+
+.track-search-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 18px 10px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Adaptación a skins retro / Ableton */
+body[data-skin="gibson_90s"] .track-search-bar { background: #c0c0c0; border-bottom: 1px solid #808080; }
+body[data-skin="gibson_90s"] .track-search-input {
+  background: #ffffff; color: #000000; border-radius: 0;
+  border-top: 2px solid #404040; border-left: 2px solid #404040;
+  border-right: 2px solid #ffffff; border-bottom: 2px solid #ffffff;
+}
+body[data-skin="gibson_90s"] .track-filter-chip.active { background: #000080; color: #ffffff; border-color: #000; }
+body[data-skin="gibson_90s"] .autosave-badge { background: #dfdfdf; color: #000; border-radius: 0; border: 1px solid #404040; }
+
+body[data-skin="ableton_live"] .track-search-input { background: #1a1a1a; border-radius: 3px; }
+body[data-skin="ableton_live"] .track-filter-chip.active { background: #ff8c2b; border-color: #ff8c2b; color: #111; }
+
+body[data-skin="winamp_classic"] .track-search-bar { background: #1d212d; }
+body[data-skin="winamp_classic"] .track-search-input {
+  background: #040906; color: #00ff41; border: 1px solid #1d4a2b;
+  border-radius: 2px; font-family: Consolas, "Courier New", monospace;
+}
+body[data-skin="winamp_classic"] .track-filter-chip.active { background: #06180c; border-color: #00ff41; color: #00ff41; }
+body[data-skin="winamp_classic"] .autosave-badge { background: #040906; color: #00ff41; border-color: #1d4a2b; border-radius: 2px; }
+
+body[data-skin="macintosh_classic"] .track-search-bar { background: #dddddd; }
+body[data-skin="macintosh_classic"] .track-search-input { background: #ffffff; color: #000000; border: 1px solid #111; border-radius: 3px; }
+body[data-skin="macintosh_classic"] .track-filter-chip.active { background: #333399; color: #ffffff; border-color: #000; }
+body[data-skin="macintosh_classic"] .autosave-badge { background: #ffffff; color: #000; border: 1px solid #444; }/* =========================================================================
+   PANTALLA DE INICIO, BIENVENIDA Y DIAGRAMA SVG (v0.0.8 - Tanda 5)
+   ========================================================================= */
+.start-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 98000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 30%, rgba(30, 58, 138, 0.35), rgba(6, 9, 16, 0.96) 72%);
+  backdrop-filter: blur(10px);
+  padding: 16px;
+  opacity: 1;
+  transition: opacity 0.18s ease;
+}
+.start-overlay.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.start-card {
+  width: 500px;
+  max-width: 94vw;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 18px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 32px 80px rgba(0, 0, 0, 0.72);
+}
+
+.start-top-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.start-pill {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #93c5fd;
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-card));
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.start-version {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.start-hero-frame {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  background: #090e1a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.start-hero-photo {
+  width: 100%;
+  max-height: 230px;
+  object-fit: cover;
+  display: block;
+}
+.start-hero-fallback { width: 100%; }
+.start-hero-svg,
+.manual-axes-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.start-title-block { text-align: center; }
+.start-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+.start-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.start-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+@media (max-width: 480px) {
+  .start-actions { grid-template-columns: 1fr; }
+}
+.start-btn {
+  padding: 10px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 9px;
+}
+
+.start-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.start-skip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.start-skip-label input { accent-color: var(--accent); cursor: pointer; }
+.start-env-hint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+
+/* Modal de Bienvenida (3 pasos) */
+.welcome-card { width: 540px; }
+.welcome-body { gap: 10px; }
+.welcome-title { font-size: 16px; font-weight: 700; color: var(--text-main); }
+.welcome-content { font-size: 12.5px; color: var(--text-muted); line-height: 1.55; display: flex; flex-direction: column; gap: 10px; }
+.welcome-content b { color: var(--text-main); }
+.welcome-content code { background: var(--bg-app); color: var(--text-main); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+
+.welcome-callout {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-card));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-left: 3px solid var(--accent);
+  border-radius: 7px;
+  padding: 9px 11px;
+  font-size: 12px;
+  color: var(--text-main);
+}
+
+.welcome-axes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+@media (max-width: 540px) {
+  .welcome-axes-grid { grid-template-columns: 1fr; }
+}
+.welcome-axis-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+}
+.axis-pill {
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+.axis-x { background: rgba(56, 189, 248, 0.16); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.45); }
+.axis-y { background: rgba(168, 85, 247, 0.16); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.45); }
+.axis-z { background: rgba(34, 197, 94, 0.16); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.45); }
+
+.welcome-list {
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.welcome-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.welcome-dots { display: inline-flex; gap: 6px; }
+.welcome-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+.welcome-dot.active { background: var(--accent); width: 18px; border-radius: 99px; }
+.welcome-nav { display: inline-flex; gap: 6px; }
+
+/* Adaptación a skins retro */
+body[data-skin="gibson_90s"] .start-card,
+body[data-skin="gibson_90s"] .welcome-card {
+  background: #c0c0c0; color: #000; border-radius: 0;
+  border-top: 2px solid #fff; border-left: 2px solid #fff;
+  border-right: 2px solid #404040; border-bottom: 2px solid #404040;
+}
+body[data-skin="gibson_90s"] .start-title,
+body[data-skin="gibson_90s"] .start-subtitle,
+body[data-skin="gibson_90s"] .start-skip-label,
+body[data-skin="gibson_90s"] .welcome-title,
+body[data-skin="gibson_90s"] .welcome-content,
+body[data-skin="gibson_90s"] .welcome-content b,
+body[data-skin="gibson_90s"] .welcome-callout { color: #000; }
+body[data-skin="gibson_90s"] .welcome-axis-card,
+body[data-skin="gibson_90s"] .welcome-callout { background: #dfdfdf; border-radius: 0; border-color: #404040; }
+
+body[data-skin="macintosh_classic"] .start-card,
+body[data-skin="macintosh_classic"] .welcome-card { background: #dddddd; color: #000; border: 1px solid #000; border-radius: 3px; }
+body[data-skin="macintosh_classic"] .start-title,
+body[data-skin="macintosh_classic"] .start-subtitle,
+body[data-skin="macintosh_classic"] .start-skip-label,
+body[data-skin="macintosh_classic"] .welcome-title,
+body[data-skin="macintosh_classic"] .welcome-content,
+body[data-skin="macintosh_classic"] .welcome-content b { color: #000; }
+body[data-skin="macintosh_classic"] .welcome-axis-card,
+body[data-skin="macintosh_classic"] .welcome-callout { background: #ffffff; color: #000; border: 1px solid #444; }
+/* Badge Dinámica / Sidechain (v0.0.8 - Tanda 6) */
+.dyn-badge {
+  flex-shrink: 0;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.14);
+  border: 1px solid rgba(59, 130, 246, 0.45);
+}
+.dyn-badge.is-sc {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.18);
+  border-color: rgba(245, 158, 11, 0.55);
+}
+body[data-skin="gibson_90s"] .dyn-badge,
+body[data-skin="macintosh_classic"] .dyn-badge {
+  background: #dbeafe; color: #1e3a8a; border-color: #1e3a8a; border-radius: 2px;
+}
+body[data-skin="gibson_90s"] .dyn-badge.is-sc,
+body[data-skin="macintosh_classic"] .dyn-badge.is-sc {
+  background: #fef3c7; color: #92400e; border-color: #92400e;
+}
