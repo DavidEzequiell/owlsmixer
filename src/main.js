@@ -10,6 +10,7 @@ import { ErrorHandlerUI } from "./ui/ErrorHandlerUI.js";
 import { analyzeMixSpace } from "./engine/psychoacoustics.js";
 import { PsychoPanelUI } from "./ui/PsychoPanelUI.js";
 import { WindowManager } from "./ui/WindowManager.js";
+import { StartScreenUI } from "./ui/StartScreenUI.js";
 
 const viewportEl = document.getElementById("viewport");
 const sidebarEl = document.getElementById("sidebar");
@@ -150,6 +151,37 @@ const hud = new HudUI({
   onImportMix: handleImportMix,
 });
 
+// Botón compacto para alternar entre Modo Demo y Ableton Live desde la barra de estado
+const statusCluster = document.getElementById("status-text")?.parentNode;
+let btnModeSwitch = null;
+if (statusCluster && !document.getElementById("btn-mode-switch")) {
+  btnModeSwitch = document.createElement("button");
+  btnModeSwitch.type = "button";
+  btnModeSwitch.id = "btn-mode-switch";
+  btnModeSwitch.className = "mini-btn";
+  btnModeSwitch.style.marginLeft = "2px";
+  btnModeSwitch.textContent = "Demo";
+  btnModeSwitch.title = "Cambiar entre Ableton Live y Modo Demo / Sandbox";
+  btnModeSwitch.addEventListener("click", async () => {
+    btnModeSwitch.blur();
+    if (abletonService.isDemoMode()) {
+      await bootAbletonLive();
+    } else {
+      startDemoMode();
+    }
+  });
+  statusCluster.appendChild(btnModeSwitch);
+}
+
+function syncModeButton() {
+  if (!btnModeSwitch) return;
+  const isDemo = abletonService.isDemoMode();
+  btnModeSwitch.textContent = isDemo ? "Conectar Live" : "Demo";
+  btnModeSwitch.title = isDemo
+    ? "Intentar conectar con Ableton Live local"
+    : "Probar proyecto Sandbox sin modificar tu proyecto de Ableton";
+}
+
 windowManager.onChange = () => hud.syncWindowsMenuUI();
 
 const sidebar = new SidebarUI({
@@ -164,7 +196,6 @@ const sidebar = new SidebarUI({
 const psychoPanel = new PsychoPanelUI();
 
 function runMixAnalysis() {
-  // En EQ Window las esferas están ocultas; no recalculamos para no borrar fantasmas de colisión
   if (store.viewMode !== "mix") return;
   store.mixAnalysis = analyzeMixSpace(
     store.tracks,
@@ -184,18 +215,32 @@ function bindCollidingRivalsEq(item) {
   }
 }
 
+const startScreen = new StartScreenUI();
+
+document.getElementById("btn-reopen-welcome")?.addEventListener("click", () => {
+  settingsModal.close();
+  startScreen.openWelcome(true);
+});
+
+document.getElementById("btn-reopen-start")?.addEventListener("click", async () => {
+  settingsModal.close();
+  const choice = await startScreen.openStartScreen({ preferDemo: shouldStartInDemo() });
+  if (choice === "demo") startDemoMode();
+  else await bootAbletonLive();
+});
+
 new Interaction3D(stage, {
   onUndo: performUndo,
   onRedo: performRedo,
   onEscape: () => {
-    if (sidebar.isColorPopoverOpen()) sidebar.closeColorPopover();
+    if (startScreen.isWelcomeOpen()) startScreen.closeWelcome();
+    else if (sidebar.isColorPopoverOpen()) sidebar.closeColorPopover();
     else if (hud.hasOpenPopover()) hud.closePopovers();
     else if (presetsModal.isPdfOpen()) presetsModal.closePdf();
     else if (settingsModal.isOpen()) settingsModal.close();
     else if (presetsModal.isOpen()) presetsModal.close();
     else store.setSelection([]);
   },
-
 });
 
 
@@ -250,6 +295,7 @@ document.addEventListener("mouseout", (e) => {
 store.on("playstate", () => hud.syncPlayUI());
 store.on("history", () => hud.syncHistoryUI());
 store.on("banks-changed", () => hud.syncBanksUI());
+store.on("mode-changed", () => syncModeButton());
 store.on("bank-saved-flash", (slot) => {
   const btn = document.querySelector(`#mix-banks-group .bank-btn[data-bank="${slot}"]`);
   if (!btn) return;
@@ -278,7 +324,9 @@ store.on("tracks-loaded", () => {
   sidebar.updateInspector();
   hud.syncViewModeUI();
   runMixAnalysis();
-  hud.setStatus("ok", `Live · ${store.tracks.length} pistas`);
+  const prefix = abletonService.isDemoMode() ? "Demo" : "Live";
+  hud.setStatus(abletonService.isDemoMode() ? "warn" : "ok", `${prefix} · ${store.tracks.length} pistas`);
+  syncModeButton();
 });
 
 store.on("track-changed", (item) => {
@@ -369,29 +417,38 @@ store.on("snapshot-applied", () => {
 });
 
 store.on("master-meter", () => psychoPanel.updateMasterMeter());
-
 store.on("scenes-changed", () => sidebar.syncScenesUI());
 store.on("song-time", (beats) => sidebar.updateSongBar(beats));
 
 async function rescanAll() {
-  hud.setStatus("warn", "Escaneando...");
-  await withLoading("Escaneando pistas y efectos de Ableton...", async () => {
-    try {
-      await abletonService.scanAll();
-    } catch (err) {
-      hud.setStatus("err", "Error escaneando");
-      console.error(err);
-      errorHandler.show({
-        title: "Error escaneando el proyecto de Ableton",
-        message: err?.message || "No se pudieron leer las pistas o dispositivos.",
-        error: err,
-        onRetry: () => rescanAll(),
-      });
+  hud.setStatus("warn", abletonService.isDemoMode() ? "Reiniciando Demo..." : "Escaneando...");
+  await withLoading(
+    abletonService.isDemoMode() ? "Reiniciando sesión Demo..." : "Escaneando pistas y efectos de Ableton...",
+    async () => {
+      try {
+        await abletonService.scanAll();
+      } catch (err) {
+        hud.setStatus("err", "Error escaneando");
+        console.error(err);
+        errorHandler.show({
+          title: "Error escaneando el proyecto de Ableton",
+          message: err?.message || "No se pudieron leer las pistas o dispositivos.",
+          error: err,
+          onRetry: () => rescanAll(),
+          onDemo: () => startDemoMode(),
+        });
+      }
     }
-  });
+  );
 }
 
-async function bootApp() {
+function startDemoMode() {
+  errorHandler.hide();
+  hideLoading();
+  abletonService.enterDemoMode();
+}
+
+async function bootAbletonLive() {
   await withLoading("Conectando a Ableton Live...", async () => {
     try {
       await abletonService.connect();
@@ -404,26 +461,45 @@ async function bootApp() {
         title: "No se pudo conectar con Ableton Live",
         message: err?.message || "Fallo al conectar o leer el proyecto actual.",
         error: err,
-        onRetry: () => bootApp(),
+        onRetry: () => bootAbletonLive(),
+        onDemo: () => startDemoMode(),
       });
     }
   });
 }
 
-stage.applySkin(store.settings.skin);
-stage.applyStageSettings();
-await bootApp();
+function shouldStartInDemo() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("demo") === "1") return true;
+  if (params.get("live") === "1") return false;
+  const host = window.location.hostname || "";
+  const isLocal = host === "localhost" || host === "127.0.0.1" || host === "" || host.endsWith(".local");
+  return !isLocal; // En GitHub Pages / web pública arranca directo en Modo Demo
+}
 
 stage.applySkin(store.settings.skin);
 stage.applyStageSettings();
 
-await withLoading("Conectando a Ableton Live...", async () => {
-  try {
-    await abletonService.connect();
-    loadingText.textContent = "Cargando pistas del proyecto...";
-    await abletonService.scanAll();
-  } catch (err) {
-    hud.setStatus("err", "Sin conexión a Ableton");
-    console.error(err);
+const params = new URLSearchParams(window.location.search);
+const forcedMode = params.get("demo") === "1" ? "demo" : params.get("live") === "1" ? "live" : null;
+const preferDemo = shouldStartInDemo();
+
+let selectedMode = forcedMode;
+if (!selectedMode) {
+  if (!startScreen.shouldSkipStart()) {
+    hideLoading();
+    selectedMode = await startScreen.openStartScreen({ preferDemo });
+  } else {
+    selectedMode = preferDemo ? "demo" : "live";
   }
-});
+}
+
+if (selectedMode === "demo") {
+  startDemoMode();
+} else {
+  await bootAbletonLive();
+}
+
+if (!startScreen.hasSeenWelcome() && store.tracks.length > 0) {
+  startScreen.openWelcome(false);
+}

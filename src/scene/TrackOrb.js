@@ -3,6 +3,53 @@ import { ROLES } from "../data/roles.js";
 import { store, HALF_H, clamp, panToX, volToZ, sendToZ } from "../store.js";
 import { computePsychoRadius } from "../engine/psychoacoustics.js";
 
+const ORB_GEO_SPECS = {
+  performance: { sphereW: 16, sphereH: 12, circle: 16, ring: 16, lock: 18, torusR: 8,  torusT: 22 },
+  balanced:    { sphereW: 28, sphereH: 20, circle: 24, ring: 24, lock: 24, torusR: 10, torusT: 32 },
+  ultra:       { sphereW: 48, sphereH: 36, circle: 36, ring: 32, lock: 36, torusR: 14, torusT: 48 },
+};
+
+const sharedGeoPools = new Map();
+let sharedReverbBoxGeo = null;
+let sharedReverbEdgesGeo = null;
+
+function getSharedReverbGeos() {
+  if (!sharedReverbBoxGeo) {
+    sharedReverbBoxGeo = new THREE.BoxGeometry(1, 1, 1);
+    sharedReverbEdgesGeo = new THREE.EdgesGeometry(sharedReverbBoxGeo);
+  }
+  return { box: sharedReverbBoxGeo, edges: sharedReverbEdgesGeo };
+}
+
+function getSharedOrbGeos(qualityKey = "balanced") {
+  const key = ORB_GEO_SPECS[qualityKey] ? qualityKey : "balanced";
+  if (sharedGeoPools.has(key)) return sharedGeoPools.get(key);
+
+  const s = ORB_GEO_SPECS[key];
+  const pool = {
+    sphere:   new THREE.SphereGeometry(1, s.sphereW, s.sphereH),
+    shadow:   new THREE.CircleGeometry(1, s.circle),
+    ring:     new THREE.RingGeometry(0.18, 0.28, s.ring),
+    lockRing: new THREE.RingGeometry(1.12, 1.24, s.lock),
+    busOrbit: new THREE.TorusGeometry(1.28, 0.045, s.torusR, s.torusT),
+  };
+  sharedGeoPools.set(key, pool);
+  return pool;
+}
+
+export function disposeUnusedOrbGeometryPools(activeQualityKey = "balanced") {
+  const keepKey = ORB_GEO_SPECS[activeQualityKey] ? activeQualityKey : "balanced";
+  for (const [key, pool] of sharedGeoPools.entries()) {
+    if (key === keepKey) continue;
+    pool.sphere.dispose();
+    pool.shadow.dispose();
+    pool.ring.dispose();
+    pool.lockRing.dispose();
+    pool.busOrbit.dispose();
+    sharedGeoPools.delete(key);
+  }
+}
+
 export function makeTextSprite(text, textColor = "#ffffff", fontSize = 24, withBg = true) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -37,12 +84,17 @@ export function makeTextSprite(text, textColor = "#ffffff", fontSize = 24, withB
 }
 
 export class TrackOrb {
-  constructor(item, skinScene) {
+  constructor(item, skinScene, qualityKey = "balanced") {
     this.item = item;
     this.group = new THREE.Group();
+    this._lastDropX = NaN;
+    this._lastDropY = NaN;
+    this._lastDropZ = NaN;
 
-    // Esfera / Elipsoide principal
-    const geo = new THREE.SphereGeometry(1, 32, 24);
+    const geos = getSharedOrbGeos(qualityKey);
+    const revGeos = getSharedReverbGeos();
+
+    // Esfera / Elipsoide principal (geometría compartida por nivel de calidad)
     const mat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(item.colorHex),
       emissive: new THREE.Color(item.colorHex),
@@ -53,12 +105,11 @@ export class TrackOrb {
       transparent: true,
       opacity: 0.9,
     });
-    this.mesh = new THREE.Mesh(geo, mat);
+    this.mesh = new THREE.Mesh(geos.sphere, mat);
     this.mesh.userData.trackItem = item;
     this.group.add(this.mesh);
 
     // Cubo translúcido de Reverb (Visual 36 / 100 de David Gibson)
-    const revGeo = new THREE.BoxGeometry(1, 1, 1);
     const revMat = new THREE.MeshBasicMaterial({
       color: skinScene.reverbCube,
       transparent: true,
@@ -66,9 +117,9 @@ export class TrackOrb {
       depthWrite: false,
       side: THREE.DoubleSide,
     });
-    this.reverbCube = new THREE.Mesh(revGeo, revMat);
+    this.reverbCube = new THREE.Mesh(revGeos.box, revMat);
     this.reverbWire = new THREE.LineSegments(
-      new THREE.EdgesGeometry(revGeo),
+      revGeos.edges,
       new THREE.LineBasicMaterial({ color: skinScene.reverbCube, transparent: true, opacity: 0.35 })
     );
     this.reverbCube.add(this.reverbWire);
@@ -79,7 +130,7 @@ export class TrackOrb {
     this.busOrbit = null;
     if (item.isGroup) {
       this.busOrbit = new THREE.Mesh(
-        new THREE.TorusGeometry(1.28, 0.045, 10, 36),
+        geos.busOrbit,
         new THREE.MeshBasicMaterial({ color: item.colorHex, transparent: true, opacity: 0.8 })
       );
       this.busOrbit.rotation.x = Math.PI / 2.4;
@@ -88,13 +139,13 @@ export class TrackOrb {
 
     // Aro dorado para pistas bloqueadas (🔒)
     this.lockRing = new THREE.Mesh(
-      new THREE.RingGeometry(1.12, 1.24, 28),
+      geos.lockRing,
       new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
     );
     this.lockRing.visible = false;
     this.group.add(this.lockRing);
 
-    // Línea vertical al piso + sombra ovalada (como en los diagramas de Gibson)
+    // Línea vertical al piso + sombra ovalada (geometría propia para actualizar posición)
     const lineGeo = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(0, 0, 0),
       new THREE.Vector3(0, -HALF_H, 0),
@@ -106,7 +157,7 @@ export class TrackOrb {
     this.group.add(this.dropLine);
 
     this.shadowDisc = new THREE.Mesh(
-      new THREE.CircleGeometry(1, 28),
+      geos.shadow,
       new THREE.MeshBasicMaterial({ color: 0x04060b, transparent: true, opacity: 0.45, depthWrite: false })
     );
     this.shadowDisc.rotation.x = -Math.PI / 2;
@@ -114,7 +165,7 @@ export class TrackOrb {
     this.group.add(this.shadowDisc);
 
     this.ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.18, 0.28, 24),
+      geos.ring,
       new THREE.MeshBasicMaterial({ color: item.colorHex, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })
     );
     this.ring.rotation.x = -Math.PI / 2;
@@ -123,6 +174,15 @@ export class TrackOrb {
 
     this.label = null;
     this.rebuildLabel();
+  }
+
+  applyQuality(qualityKey = "balanced") {
+    const geos = getSharedOrbGeos(qualityKey);
+    this.mesh.geometry = geos.sphere;
+    this.shadowDisc.geometry = geos.shadow;
+    this.ring.geometry = geos.ring;
+    this.lockRing.geometry = geos.lockRing;
+    if (this.busOrbit) this.busOrbit.geometry = geos.busOrbit;
   }
 
   rebuildLabel() {
@@ -164,7 +224,7 @@ export class TrackOrb {
     });
   }
 
-  sync(camera) {
+  sync(camera, anySoloOverride = null) {
     const item = this.item;
     const { settings } = store;
     const visible = store.viewMode === "mix" && !item.hidden && !(item.isGroup && !store.showBuses);
@@ -179,7 +239,7 @@ export class TrackOrb {
     const minY = -HALF_H + (item.shape === "oblong" ? baseR * 0.55 : baseR * 0.85);
     const y = clamp(item.y, minY, HALF_H - 0.35);
 
-    const anySolo = store.tracks.some((t) => t.solo);
+    const anySolo = anySoloOverride !== null ? anySoloOverride : store.tracks.some((t) => t.solo);
     const isSilent = item.mute || (anySolo && !item.solo);
     const isSelected = store.selectedIds.has(item.id);
     const pulse = 1 + (isSilent ? 0 : item.smoothMeter * 0.24);
@@ -224,16 +284,24 @@ export class TrackOrb {
       if (camera) this.lockRing.lookAt(camera.position);
     }
 
-    // Drop line, aro guía y sombra en el piso (toggleables)
-    const showShadows = settings.showFloorShadows !== false;
+    // Drop line, aro guía y sombra en el piso (solo sube buffer GPU si cambió la posición)
+    const showShadows = settings.showFloorShadows !== false && settings.graphicsQuality !== "performance";
     const showGuides = settings.showDropLines !== false;
 
     this.dropLine.visible = showGuides;
-    if (showGuides) {
+    if (
+      showGuides &&
+      (Math.abs(x - this._lastDropX) > 0.0005 ||
+        Math.abs(y - this._lastDropY) > 0.0005 ||
+        Math.abs(z - this._lastDropZ) > 0.0005)
+    ) {
       const posAttr = this.dropLine.geometry.attributes.position;
       posAttr.setXYZ(0, x, y, z);
       posAttr.setXYZ(1, x, -HALF_H, z);
       posAttr.needsUpdate = true;
+      this._lastDropX = x;
+      this._lastDropY = y;
+      this._lastDropZ = z;
     }
 
     this.shadowDisc.visible = showShadows;
@@ -261,21 +329,17 @@ export class TrackOrb {
     this.mesh.material.emissiveIntensity = isSilent ? 0.05 : baseGlow + item.smoothMeter * 0.42;
   }
 
+  // Libera únicamente materiales/buffers exclusivos de esta pista (nunca las geometrías compartidas)
   dispose() {
-    this.mesh.geometry.dispose();
     this.mesh.material.dispose();
-    this.reverbCube.geometry.dispose();
     this.reverbCube.material.dispose();
+    this.reverbWire.material.dispose();
     this.dropLine.geometry.dispose();
     this.dropLine.material.dispose();
-    this.shadowDisc.geometry.dispose();
     this.shadowDisc.material.dispose();
-    this.ring.geometry.dispose();
     this.ring.material.dispose();
-    this.lockRing.geometry.dispose();
     this.lockRing.material.dispose();
     if (this.busOrbit) {
-      this.busOrbit.geometry.dispose();
       this.busOrbit.material.dispose();
     }
     if (this.label) {

@@ -61,55 +61,18 @@ export class PresetsModalUI {
     this.btnApply.addEventListener("click", async () => {
       this.btnApply.blur();
       const preset = PRESETS[this.select.value];
-      if (!preset) return;
+      if (!preset || this.btnApply.disabled) return;
 
-      // Preset Default / Neutro (mismo estado que DRY, respetando pistas bloqueadas)
-      if (preset.isDefaultDry) {
-        for (const item of store.tracks) {
-          if (!item.locked && !item.isGroup && item.eq?.hasDevice && !item.eq.bound) {
-            await abletonService.ensureEqBound(item);
-          }
-        }
-        const before = store.captureSnapshot();
-        store.pushHistory(before);
-        const drySnap = store.buildDrySnapshot(before);
-        const mergedSnap = {
-          ...drySnap,
-          tracks: drySnap.tracks.map((t, idx) => {
-            const orig = before.tracks[idx];
-            const liveTrack = store.getTrackById(t.id);
-            return liveTrack && (liveTrack.locked || liveTrack.isGroup) ? orig : t;
-          }),
-        };
-        await abletonService.applySnapshot(mergedSnap);
-        this.onPresetApplied?.();
-        return;
+      const prevText = this.btnApply.textContent;
+      this.btnApply.disabled = true;
+      this.btnApply.textContent = "Aplicando...";
+      try {
+        const applied = await abletonService.applyPreset(preset);
+        if (applied) this.onPresetApplied?.();
+      } finally {
+        this.btnApply.disabled = false;
+        this.btnApply.textContent = prevText;
       }
-
-      store.pushHistory(store.captureSnapshot());
-
-      for (const item of store.tracks) {
-        if (item.locked || item.isGroup) continue;
-        const target = preset.roles[item.role];
-        if (!target) continue;
-
-        item.pan = target.pan;
-        item.vol = target.vol;
-        item.sendA = target.sendA;
-        item.y = target.y;
-        if (target.shape) item.shape = target.shape;
-
-        await item._ableton.panParam.set("value", item.pan);
-        await item._ableton.volParam.set("value", item.vol);
-        if (item._ableton.sendAParam) await item._ableton.sendAParam.set("value", item.sendA);
-      }
-
-      if (preset.reverb && store.reverbInfo.connected) {
-        abletonService.setReverbDecay(preset.reverb.decay, true);
-        abletonService.setReverbPredelay(preset.reverb.predelay, true);
-      }
-
-      this.onPresetApplied?.();
     });
   }
 

@@ -1,5 +1,6 @@
 import { SKINS } from "../data/skins.js";
 import { store, APP_VERSION } from "../store.js";
+import { GRAPHICS_QUALITY_PRESETS } from "../scene/Stage3D.js";
 
 export class SettingsModalUI {
   constructor() {
@@ -23,6 +24,13 @@ export class SettingsModalUI {
     this.optEqTips = document.getElementById("opt-show-eq-tips");
     this.optFreqSizing = document.getElementById("opt-freq-sizing");
 
+    // Inyecta selector de Calidad Gráfica y Auto-Size dentro de Preferencias
+    this.optGraphicsQuality = this._ensureQualityControl();
+    this.optAutoSize = this._ensureAutoSizeControl();
+
+    // Despeja el Dock inferior moviendo Auto-Size a Opciones
+    document.getElementById("btn-auto-size")?.classList.add("hidden");
+
     // Easter Egg David Gibson VHS
     this.versionBtn = document.getElementById("app-version-egg");
     this.eggPanel = document.getElementById("easter-egg-panel");
@@ -33,6 +41,7 @@ export class SettingsModalUI {
     if (this.versionBtn) this.versionBtn.textContent = `v${APP_VERSION}`;
 
     this.populateSkins();
+    this.populateGraphicsQuality();
 
     this.btnClose.addEventListener("click", () => this.close());
     this.backdrop.addEventListener("click", (e) => {
@@ -53,6 +62,10 @@ export class SettingsModalUI {
       this.optSkin.blur();
       store.updateSettings({ skin: this.optSkin.value });
     });
+    this.optGraphicsQuality?.addEventListener("change", () => {
+      this.optGraphicsQuality.blur();
+      store.updateSettings({ graphicsQuality: this.optGraphicsQuality.value });
+    });
     this.optVolUnit.addEventListener("change", () => store.updateSettings({ volUnit: this.optVolUnit.value }));
     this.optZMode.addEventListener("change", () => store.updateSettings({ zMode: this.optZMode.value }));
     this.optReverbCubes.addEventListener("change", () => store.updateSettings({ showReverbCubes: this.optReverbCubes.checked }));
@@ -62,9 +75,69 @@ export class SettingsModalUI {
     this.optDropLines.addEventListener("change", () => store.updateSettings({ showDropLines: this.optDropLines.checked }));
     this.optEqTips.addEventListener("change", () => store.updateSettings({ showEqTips: this.optEqTips.checked }));
     this.optFreqSizing.addEventListener("change", () => store.updateSettings({ freqSizing: this.optFreqSizing.checked }));
+    this.optAutoSize?.addEventListener("change", () => store.updateSettings({ autoSize: this.optAutoSize.checked }));
+
+    store.on("settings", () => {
+      if (this.isOpen()) this.syncFromStore();
+    });
 
     this.initEasterEgg();
     this.syncFromStore();
+  }
+
+  _ensureQualityControl() {
+    const existing = document.getElementById("opt-graphics-quality");
+    if (existing) return existing;
+
+    const skinRow = this.optSkin?.closest(".setting-row");
+    if (!skinRow?.parentNode) return null;
+
+    const row = document.createElement("div");
+    row.className = "setting-row";
+    row.innerHTML = `
+      <div>
+        <strong>Calidad gráfica 3D
+          <span class="help-icon" data-help="Rendimiento: 30 FPS, resolución 1x, esferas simples y desactiva sombras del piso, niebla y luces extra para liberar GPU. Balanceado: 60 FPS recomendado. Studio Ultra: 60 FPS, HiDPI 2x, esferas 48×36, ACESFilmic e iluminación de estudio.">?</span>
+        </strong>
+        <div class="muted-note" style="margin:2px 0 0;">Ajusta resolución, detalle de esferas, sombras, iluminación y FPS sin reiniciar.</div>
+      </div>
+      <select id="opt-graphics-quality"></select>
+    `;
+    skinRow.parentNode.insertBefore(row, skinRow.nextSibling);
+    return row.querySelector("#opt-graphics-quality");
+  }
+
+  _ensureAutoSizeControl() {
+    const existing = document.getElementById("opt-auto-size");
+    if (existing) return existing;
+
+    const freqRow = this.optFreqSizing?.closest(".setting-row");
+    if (!freqRow?.parentNode) return null;
+
+    const row = document.createElement("div");
+    row.className = "setting-row";
+    row.innerHTML = `
+      <div>
+        <strong>Auto-Size dinámico (Crest + HPF EQ)</strong>
+        <div class="muted-note" style="margin:2px 0 0;">Ajusta el radio según densidad dinámica y cortes de graves (&lt;300 Hz). Desactivalo para escalar manual.</div>
+      </div>
+      <input type="checkbox" id="opt-auto-size" />
+    `;
+    freqRow.parentNode.insertBefore(row, freqRow.nextSibling);
+    return row.querySelector("#opt-auto-size");
+  }
+
+  populateGraphicsQuality() {
+    if (!this.optGraphicsQuality) return;
+    this.optGraphicsQuality.innerHTML = "";
+    const cur = store.settings.graphicsQuality || "balanced";
+    Object.entries(GRAPHICS_QUALITY_PRESETS).forEach(([key, cfg]) => {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = cfg.label;
+      if (key === cur) opt.selected = true;
+      this.optGraphicsQuality.appendChild(opt);
+    });
   }
 
   initEasterEgg() {
@@ -129,6 +202,7 @@ export class SettingsModalUI {
   syncFromStore() {
     const s = store.settings;
     this.optSkin.value = s.skin;
+    if (this.optGraphicsQuality) this.optGraphicsQuality.value = s.graphicsQuality || "balanced";
     this.optVolUnit.value = s.volUnit;
     this.optZMode.value = s.zMode;
     this.optReverbCubes.checked = s.showReverbCubes;
@@ -138,5 +212,6 @@ export class SettingsModalUI {
     this.optDropLines.checked = s.showDropLines !== false;
     this.optEqTips.checked = s.showEqTips;
     this.optFreqSizing.checked = s.freqSizing;
+    if (this.optAutoSize) this.optAutoSize.checked = s.autoSize !== false;
   }
 }

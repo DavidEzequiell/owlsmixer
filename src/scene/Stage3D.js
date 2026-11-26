@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { SKINS } from "../data/skins.js";
 import { store, HALF_W, HALF_H, HALF_D } from "../store.js";
-import { TrackOrb, makeTextSprite } from "./TrackOrb.js";
+import { TrackOrb, makeTextSprite, disposeUnusedOrbGeometryPools } from "./TrackOrb.js";
 import { EqWindow3D } from "./EqWindow3D.js";
 
 const CAM_VIEWS = {
@@ -11,12 +11,51 @@ const CAM_VIEWS = {
   top:   { pos: [0, 15.8, 0.1], target: [0, 0, 0] },
 };
 
+export const GRAPHICS_QUALITY_PRESETS = {
+  performance: {
+    label: "Rendimiento (30 FPS · Ligero)",
+    maxDpr: 1,
+    targetFps: 30,
+    fog: false,
+    backLight: false,
+    rimLight: false,
+    toneMapping: false,
+    anisotropy: 1,
+  },
+  balanced: {
+    label: "Balanceado (60 FPS · Recomendado)",
+    maxDpr: 1.5,
+    targetFps: 60,
+    fog: true,
+    backLight: true,
+    rimLight: false,
+    toneMapping: false,
+    anisotropy: 4,
+  },
+  ultra: {
+    label: "Studio Ultra (60 FPS · Alta definición)",
+    maxDpr: 2,
+    targetFps: 60,
+    fog: true,
+    backLight: true,
+    rimLight: true,
+    toneMapping: true,
+    anisotropy: 16,
+  },
+};
+
 export class Stage3D {
   constructor(viewportEl) {
     this.viewportEl = viewportEl;
     this.orbs = new Map();
+    this.stageTextures = [];
+    this._activeQuality = null;
+    this._frameIntervalMs = 0;
+    this._lastFrameTime = 0;
 
     const skin = SKINS[store.settings.skin] || SKINS.gibson_dark;
+    this._skinFogDensity = skin.scene.fogDensity;
+
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(skin.scene.bg);
     this.scene.fog = new THREE.FogExp2(skin.scene.bg, skin.scene.fogDensity);
@@ -24,9 +63,8 @@ export class Stage3D {
     this.camera = new THREE.PerspectiveCamera(48, viewportEl.clientWidth / viewportEl.clientHeight, 0.1, 100);
     this.camera.position.set(...CAM_VIEWS.iso.pos);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.renderer.setSize(viewportEl.clientWidth, viewportEl.clientHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     viewportEl.appendChild(this.renderer.domElement);
 
     this.onLiveMixTick = null;
@@ -37,13 +75,21 @@ export class Stage3D {
     this.controls.dampingFactor = 0.07;
     this.controls.target.set(...CAM_VIEWS.iso.target);
 
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.72));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
-    dirLight.position.set(6, 12, 10);
-    this.scene.add(dirLight);
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.72);
+    this.scene.add(this.ambientLight);
+
+    this.dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+    this.dirLight.position.set(6, 12, 10);
+    this.scene.add(this.dirLight);
+
     this.backLight = new THREE.PointLight(skin.scene.accentLight, 0.85, 34);
     this.backLight.position.set(0, 2, -7);
     this.scene.add(this.backLight);
+
+    // Luz de relleno de estudio (solo activa en Studio Ultra)
+    this.rimLight = new THREE.HemisphereLight(0xc7dcff, 0x1e293b, 0.42);
+    this.rimLight.visible = false;
+    this.scene.add(this.rimLight);
 
     this.stageRefs = {};
     this.buildStage(skin.scene);
@@ -53,11 +99,48 @@ export class Stage3D {
     this.savedMixCam = null;
     this.eqWindow = new EqWindow3D(this.scene);
 
+    this.applyQuality(store.settings.graphicsQuality || "balanced");
+
+    store.on("settings", (s) => {
+      const nextQ = s?.graphicsQuality || "balanced";
+      if (nextQ !== this._activeQuality) this.applyQuality(nextQ);
+    });
+
     window.addEventListener("resize", () => this.resize());
     this.startLoop();
   }
 
-  // Genera textura procedural de nubes 90s estilo Silicon Graphics / The Art of Mixing!
+  applyQuality(qualityKey = "balanced") {
+    const key = GRAPHICS_QUALITY_PRESETS[qualityKey] ? qualityKey : "balanced";
+    const preset = GRAPHICS_QUALITY_PRESETS[key];
+    this._activeQuality = key;
+    this._frameIntervalMs = preset.targetFps < 50 ? 1000 / preset.targetFps : 0;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, preset.maxDpr);
+    this.renderer.setPixelRatio(dpr);
+    this.renderer.toneMapping = preset.toneMapping ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
+    this.renderer.toneMappingExposure = preset.toneMapping ? 1.08 : 1.0;
+
+    this.backLight.visible = preset.backLight;
+    this.rimLight.visible = preset.rimLight;
+    this.ambientLight.intensity = preset.rimLight ? 0.56 : 0.72;
+    this.scene.fog.density = preset.fog ? this._skinFogDensity : 0;
+
+    const maxAniso = this.renderer.capabilities.getMaxAnisotropy?.() || 1;
+    const targetAniso = Math.min(preset.anisotropy, maxAniso);
+    for (const tex of this.stageTextures) {
+      if (tex.anisotropy !== targetAniso) {
+        tex.anisotropy = targetAniso;
+        tex.needsUpdate = true;
+      }
+    }
+
+    this.orbs.forEach((orb) => orb.applyQuality(key));
+    disposeUnusedOrbGeometryPools(key);
+    this.resize();
+  }
+
+  // Genera textura procedural de nubes 90s estilo Silicon Graphics / The Art of Mixing
   createCloudsTexture(withYellowHorizon = false) {
     const canvas = document.createElement("canvas");
     canvas.width = 512;
@@ -78,7 +161,6 @@ export class Stage3D {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 512, 512);
 
-    // Nubes esponjosas retro
     let seed = withYellowHorizon ? 42 : 17;
     const rand = () => {
       seed = (seed * 16807) % 2147483647;
@@ -106,6 +188,7 @@ export class Stage3D {
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.needsUpdate = true;
+    this.stageTextures.push(tex);
     return tex;
   }
 
@@ -118,12 +201,10 @@ export class Stage3D {
     const sideMat = new THREE.MeshBasicMaterial({ map: sideTex, side: THREE.FrontSide, transparent: true, opacity: 0.92 });
     const backMat = new THREE.MeshBasicMaterial({ map: backTex, side: THREE.FrontSide });
 
-    // Pared trasera (horizonte amarillo)
     const backWall = new THREE.Mesh(new THREE.PlaneGeometry(HALF_W * 2, HALF_H * 2), backMat);
     backWall.position.set(0, 0, -HALF_D - 0.03);
     group.add(backWall);
 
-    // Pared izquierda y derecha (nubes translúcidas)
     const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(HALF_D * 2, HALF_H * 2), sideMat);
     leftWall.rotation.y = Math.PI / 2;
     leftWall.position.set(-HALF_W - 0.02, 0, 0);
@@ -134,13 +215,11 @@ export class Stage3D {
     rightWall.position.set(HALF_W + 0.02, 0, 0);
     group.add(rightWall);
 
-    // Techo de nubes
     const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(HALF_W * 2, HALF_D * 2), sideMat);
     ceiling.rotation.x = Math.PI / 2;
     ceiling.position.set(0, HALF_H + 0.02, 0);
     group.add(ceiling);
 
-    // Piso azul clásico de Gibson (degradé azul fuerte adelante -> celeste atrás)
     const fCanvas = document.createElement("canvas");
     fCanvas.width = 512;
     fCanvas.height = 512;
@@ -151,9 +230,12 @@ export class Stage3D {
     fGrad.addColorStop(1, "#2f4799");
     fctx.fillStyle = fGrad;
     fctx.fillRect(0, 0, 512, 512);
+
+    const floorTex = new THREE.CanvasTexture(fCanvas);
+    this.stageTextures.push(floorTex);
     const floorBase = new THREE.Mesh(
       new THREE.PlaneGeometry(HALF_W * 2, HALF_D * 2),
-      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(fCanvas), side: THREE.FrontSide })
+      new THREE.MeshBasicMaterial({ map: floorTex, side: THREE.FrontSide })
     );
     floorBase.rotation.x = -Math.PI / 2;
     floorBase.position.y = -HALF_H - 0.015;
@@ -199,6 +281,7 @@ export class Stage3D {
     });
 
     const tex = new THREE.CanvasTexture(canvas);
+    this.stageTextures.push(tex);
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(HALF_W * 2, HALF_D * 2),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
@@ -244,6 +327,7 @@ export class Stage3D {
     });
 
     const tex = new THREE.CanvasTexture(canvas);
+    this.stageTextures.push(tex);
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(HALF_W * 2, HALF_H * 2),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false })
@@ -282,6 +366,7 @@ export class Stage3D {
     const boxGeo = new THREE.BoxGeometry(HALF_W * 2, HALF_H * 2, HALF_D * 2);
     this.stageRefs.boxLinesMat = new THREE.LineBasicMaterial({ color: s.boxLines, transparent: true, opacity: 0.75 });
     this.scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(boxGeo), this.stageRefs.boxLinesMat));
+    boxGeo.dispose();
 
     this.rebuildGrids(s);
     this.stageRefs.floorLevels = this.buildFloorLevelsOverlay();
@@ -299,16 +384,20 @@ export class Stage3D {
     this.stageRefs.spkConeMat = new THREE.MeshStandardMaterial({ color: s.spkCone, roughness: 0.4 });
     this.stageRefs.spkRimMat = new THREE.MeshBasicMaterial({ color: s.spkRim });
 
+    const spkBoxGeo = new THREE.BoxGeometry(1.1, 2.2, 0.9);
+    const wooferGeo = new THREE.CylinderGeometry(0.36, 0.36, 0.08, 24);
+    const tweeterGeo = new THREE.CylinderGeometry(0.18, 0.18, 0.08, 24);
+
     [-HALF_W - 0.85, HALF_W + 0.85].forEach((xPos, idx) => {
       const grp = new THREE.Group();
-      grp.add(new THREE.Mesh(new THREE.BoxGeometry(1.1, 2.2, 0.9), this.stageRefs.spkCabMat));
+      grp.add(new THREE.Mesh(spkBoxGeo, this.stageRefs.spkCabMat));
 
-      const woofer = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.08, 24), this.stageRefs.spkConeMat);
+      const woofer = new THREE.Mesh(wooferGeo, this.stageRefs.spkConeMat);
       woofer.rotation.x = Math.PI / 2;
       woofer.position.set(0, -0.38, 0.45);
       grp.add(woofer);
 
-      const tweeter = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.08, 24), this.stageRefs.spkRimMat);
+      const tweeter = new THREE.Mesh(tweeterGeo, this.stageRefs.spkRimMat);
       tweeter.rotation.x = Math.PI / 2;
       tweeter.position.set(0, 0.48, 0.45);
       grp.add(tweeter);
@@ -339,11 +428,16 @@ export class Stage3D {
     );
     this.centroidMarker.visible = false;
     this.scene.add(this.centroidMarker);
-    // Detector visual de colisiones / enmascaramiento ("Solar Eclipse", Visual 23)
+
+    // Detector visual de colisiones / enmascaramiento (geometría y materiales reutilizados)
     this.collisionLineMat = new THREE.LineBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.85 });
     this.collisionLines = new THREE.LineSegments(new THREE.BufferGeometry(), this.collisionLineMat);
     this.collisionLines.visible = false;
     this.scene.add(this.collisionLines);
+
+    this._colMarkerGeo = new THREE.OctahedronGeometry(1, 0);
+    this._colMatMud = new THREE.MeshBasicMaterial({ color: 0xef4444, wireframe: true, transparent: true, opacity: 0.9 });
+    this._colMatWarn = new THREE.MeshBasicMaterial({ color: 0xf59e0b, wireframe: true, transparent: true, opacity: 0.9 });
 
     this.collisionMarkers = new THREE.Group();
     this.scene.add(this.collisionMarkers);
@@ -353,14 +447,16 @@ export class Stage3D {
     const skin = SKINS[skinKey];
     if (!skin) return;
 
-    // Activa estilos especiales por skin (ej. Windows 98 para gibson_90s)
     document.body.dataset.skin = skinKey;
     Object.entries(skin.ui).forEach(([k, v]) => document.documentElement.style.setProperty(k, v));
 
     const s = skin.scene;
+    const preset = GRAPHICS_QUALITY_PRESETS[this._activeQuality] || GRAPHICS_QUALITY_PRESETS.balanced;
+    this._skinFogDensity = s.fogDensity;
+
     this.scene.background.setHex(s.bg);
     this.scene.fog.color.setHex(s.bg);
-    this.scene.fog.density = s.fogDensity;
+    this.scene.fog.density = preset.fog ? s.fogDensity : 0;
     this.backLight.color.setHex(s.accentLight);
     this.stageRefs.boxLinesMat.color.setHex(s.boxLines);
     this.stageRefs.centerLineMat.color.setHex(s.centerLine);
@@ -408,6 +504,7 @@ export class Stage3D {
     this.updateCollisions(store.mixAnalysis?.collisions || []);
     this.eqWindow.sync();
   }
+
   rebuildOrbs() {
     this.orbs.forEach((orb) => {
       this.scene.remove(orb.group);
@@ -416,8 +513,9 @@ export class Stage3D {
     this.orbs.clear();
 
     const skinScene = (SKINS[store.settings.skin] || SKINS.gibson_dark).scene;
+    const qualityKey = this._activeQuality || store.settings.graphicsQuality || "balanced";
     store.tracks.forEach((item) => {
-      const orb = new TrackOrb(item, skinScene);
+      const orb = new TrackOrb(item, skinScene, qualityKey);
       this.scene.add(orb.group);
       this.orbs.set(item.id, orb);
     });
@@ -437,18 +535,20 @@ export class Stage3D {
       orb.sync(this.camera);
     }
   }
+
   updateOrbColor(item) {
     const orb = this.orbs.get(item.id);
     if (orb) orb.updateColor(item.colorHex);
   }
 
   updateAllOrbs() {
-    this.orbs.forEach((orb) => orb.sync(this.camera));
+    const anySolo = store.tracks.some((t) => t.solo);
+    this.orbs.forEach((orb) => orb.sync(this.camera, anySolo));
     this.updateCluster();
     if (store.viewMode === "eq") this.eqWindow.sync();
   }
 
-   updateCluster() {
+  updateCluster() {
     if (store.viewMode !== "mix") {
       this.clusterLines.visible = false;
       this.centroidMarker.visible = false;
@@ -485,13 +585,9 @@ export class Stage3D {
     this.centroidMarker.visible = true;
   }
 
-
   updateCollisions(collisions = []) {
     while (this.collisionMarkers.children.length > 0) {
-      const m = this.collisionMarkers.children[0];
-      m.geometry.dispose();
-      m.material.dispose();
-      this.collisionMarkers.remove(m);
+      this.collisionMarkers.remove(this.collisionMarkers.children[0]);
     }
 
     if (store.viewMode !== "mix" || !store.settings.showCollisions || collisions.length === 0) {
@@ -504,12 +600,14 @@ export class Stage3D {
     collisions.forEach((c) => {
       pts.push(c.posA.x, c.posA.y, c.posA.z, c.posB.x, c.posB.y, c.posB.z);
       const mid = c.posA.clone().add(c.posB).multiplyScalar(0.5);
-      const colHex = c.isLowMud ? 0xef4444 : 0xf59e0b;
+      const baseScale = 0.14 + c.severity * 0.14;
       const marker = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.14 + c.severity * 0.14, 0),
-        new THREE.MeshBasicMaterial({ color: colHex, wireframe: true, transparent: true, opacity: 0.9 })
+        this._colMarkerGeo,
+        c.isLowMud ? this._colMatMud : this._colMatWarn
       );
       marker.position.copy(mid);
+      marker.userData.baseScale = baseScale;
+      marker.scale.setScalar(baseScale);
       this.collisionMarkers.add(marker);
     });
 
@@ -537,7 +635,7 @@ export class Stage3D {
     this.controls.update();
   }
 
- attachContextLossHandler(onLost) {
+  attachContextLossHandler(onLost) {
     this.contextLost = false;
     this.renderer.domElement.addEventListener("webglcontextlost", (e) => {
       e.preventDefault();
@@ -551,28 +649,38 @@ export class Stage3D {
   }
 
   resize() {
-    this.camera.aspect = this.viewportEl.clientWidth / this.viewportEl.clientHeight;
+    const w = this.viewportEl.clientWidth;
+    const h = this.viewportEl.clientHeight;
+    if (w < 2 || h < 2) return;
+    this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(this.viewportEl.clientWidth, this.viewportEl.clientHeight);
+    this.renderer.setSize(w, h);
   }
 
   startLoop() {
-    const tick = () => {
+    const tick = (now = performance.now()) => {
       requestAnimationFrame(tick);
-      if (this.contextLost) return;
+      if (this.contextLost || document.hidden) return;
+
+      if (this._frameIntervalMs > 0) {
+        if (now - this._lastFrameTime < this._frameIntervalMs) return;
+        this._lastFrameTime = now;
+      }
 
       this.controls.update();
       if (this.centroidMarker.visible) this.centroidMarker.rotation.y += 0.02;
 
       if (this.collisionMarkers.visible && this.collisionMarkers.children.length > 0) {
-        const pulse = 1 + Math.sin(performance.now() * 0.007) * 0.18;
-        this.collisionMarkers.children.forEach((m) => {
+        const pulse = 1 + Math.sin(now * 0.007) * 0.18;
+        for (let i = 0; i < this.collisionMarkers.children.length; i++) {
+          const m = this.collisionMarkers.children[i];
           m.rotation.y -= 0.03;
-          m.scale.setScalar(pulse);
-        });
+          m.scale.setScalar((m.userData.baseScale || 0.18) * pulse);
+        }
       }
 
       let anyMoving = false;
+      const anySolo = store.tracks.some((t) => t.solo);
       for (const item of store.tracks) {
         if (!store.flashFreeze) {
           const m = item.meter || 0;
@@ -591,12 +699,11 @@ export class Stage3D {
 
         if (item.smoothMeter > 0.002 || item.meter > 0.002 || Math.abs((item.crestScale ?? 1) - 1) > 0.01 || item.locked) {
           const orb = this.orbs.get(item.id);
-          if (orb && orb.group.visible) orb.sync(this.camera);
+          if (orb && orb.group.visible) orb.sync(this.camera, anySolo);
           if (item.meter > 0.01) anyMoving = true;
         }
       }
 
-      const now = performance.now();
       if (anyMoving && store.settings.autoSize && !store.flashFreeze && store.viewMode === "mix" && now - this.lastLiveAnalysis > 1500) {
         this.lastLiveAnalysis = now;
         this.onLiveMixTick?.();
