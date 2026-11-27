@@ -36,7 +36,7 @@ export function formatPan(pan) {
   return pan < 0 ? `${Math.round(-pan * 50)}L` : `${Math.round(pan * 50)}R`;
 }
 
-export const APP_VERSION = "0.0.8";
+export const APP_VERSION = "0.0.9";
 
 const SETTINGS_KEY = "owls3d_settings_v3";
 const SESSIONS_INDEX_KEY = "owls3d_sessions_index_v1";
@@ -51,6 +51,12 @@ const DEFAULT_SETTINGS = {
   showFreqBands: true,
   showFloorShadows: true,
   showDropLines: true,
+  showTrackIcons: true,    // Iconos de instrumento en el 3D
+  showTrackNames: true,    // Nombres de pista en texto en el 3D
+  autoFadeSilent: false,   // Atenuar/ocultar pistas sin señal durante Play
+  presetRelativeVol: false,// Aplicar presets conservando volumen promedio actual
+  colorTemplate: "art_of_mixing",
+  customRoleColors: {},    // Colores personalizados por rol
   showEqTips: true,
   freqSizing: true,
   showCollisions: true,    // Detector Solar Eclipse en 3D
@@ -196,9 +202,50 @@ class Store extends EventTarget {
   }
 
   updateSettings(patch) {
-    this.settings = { ...this.settings, ...patch };
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
+    if (!patch || typeof patch !== "object") return;
+    const safe = { ...patch };
+    if (safe.skin && !SKINS[safe.skin]) delete safe.skin;
+    this.settings = { ...this.settings, ...safe };
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
+    } catch {}
     this.emit("settings", this.settings);
+  }
+  // Limpia el estado efímero de sesión (al cambiar Demo ↔ Live o cambiar de proyecto)
+  resetSessionState() {
+    clearTimeout(this._autosaveTimer);
+    this._autosaveTimer = null;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.banks = { A: null, B: null, C: null, D: null };
+    this.activeBank = null;
+    this.isDryBypass = false;
+    this.dryReturnSnapshot = null;
+    this.virtualGroups = [];
+    this.collapsedGroups.clear();
+    this.selectedIds.clear();
+    this.scenes = [];
+    this.scenesAutoEnabled = false;
+    this.lastSceneRuleId = null;
+    this._restoredSessionKey = null;
+    this.lastAutosaveAt = null;
+    this.lastSessionRestored = false;
+    this.emit("history");
+    this.emit("banks-changed");
+    this.emit("scenes-changed");
+    this.emit("selection");
+  }
+
+  pruneInvalidSelection() {
+    const validIds = new Set(this.tracks.map((t) => t.id));
+    let changed = false;
+    for (const id of Array.from(this.selectedIds)) {
+      if (!validIds.has(id)) {
+        this.selectedIds.delete(id);
+        changed = true;
+      }
+    }
+    if (changed) this.emit("selection");
   }
 
   getTrackById(id) {
@@ -520,6 +567,67 @@ class Store extends EventTarget {
     return true;
   }
 
+  _applySavedSessionData(data) {
+    if (!data || !Array.isArray(data.tracksMeta)) return false;
+
+    if (Array.isArray(data.virtualGroups)) {
+      this.virtualGroups = data.virtualGroups.map((g) => ({ ...g }));
+    }
+    const validVGroups = new Set(this.virtualGroups.map((g) => g.id));
+
+    if (Array.isArray(data.collapsedGroups)) {
+      this.collapsedGroups = new Set(data.collapsedGroups.map(String));
+    }
+
+    const unusedMeta = [...data.tracksMeta];
+    const takeMatch = (track) => {
+      let idx = unusedMeta.findIndex((m) => String(m.id) === String(track.id));
+      if (idx === -1) {
+        const targetName = normalizeTrackSigName(track.name);
+        idx = unusedMeta.findIndex(
+          (m) => Boolean(m.isGroup) === Boolean(track.isGroup) && normalizeTrackSigName(m.name) === targetName
+        );
+      }
+      if (idx === -1) return null;
+      return unusedMeta.splice(idx, 1)[0];
+    };
+
+    for (const t of this.tracks) {
+      const meta = takeMatch(t);
+      if (!meta) continue;
+      if (meta.role && ROLES[meta.role]) t.role = meta.role;
+      if (typeof meta.y === "number" && Number.isFinite(meta.y)) {
+        t.y = clamp(meta.y, -HALF_H + 0.25, HALF_H - 0.25);
+      }
+      if (meta.shape === "sphere" || meta.shape === "oblong") t.shape = meta.shape;
+      if (typeof meta.sizeScale === "number" && Number.isFinite(meta.sizeScale)) {
+        t.sizeScale = clamp(meta.sizeScale, 0.4, 2.4);
+      }
+      t.hidden = Boolean(meta.hidden);
+      t.locked = Boolean(meta.locked);
+      t.vGroupId = meta.vGroupId && validVGroups.has(meta.vGroupId) ? meta.vGroupId : null;
+    }
+
+    if (data.banks && typeof data.banks === "object") {
+      for (const slot of ["A", "B", "C", "D"]) {
+        if (data.banks[slot]?.tracks) this.banks[slot] = data.banks[slot];
+      }
+      if (data.activeBank && this.banks[data.activeBank]) {
+        this.activeBank = data.activeBank;
+      }
+    }
+
+    if (Array.isArray(data.scenes)) {
+      this.scenes = data.scenes.map((s) => ({ ...s }));
+      this.scenesAutoEnabled = Boolean(data.scenesAutoEnabled);
+    }
+
+    this.lastAutosaveAt = data.updatedAt || Date.now();
+    this.lastSessionRestored = true;
+    this.emit("session-restored", { updatedAt: this.lastAutosaveAt });
+    return true;
+  }
+
   restoreSessionForCurrentTracks() {
     if (this.tracks.length === 0) return false;
     const { key, names } = this.computeSessionSignature();
@@ -557,70 +665,101 @@ class Store extends EventTarget {
     }
 
     try {
-      const data = JSON.parse(raw);
-      if (!data || !Array.isArray(data.tracksMeta)) return false;
-
-      if (Array.isArray(data.virtualGroups)) {
-        this.virtualGroups = data.virtualGroups.map((g) => ({ ...g }));
-      }
-      const validVGroups = new Set(this.virtualGroups.map((g) => g.id));
-
-      if (Array.isArray(data.collapsedGroups)) {
-        this.collapsedGroups = new Set(data.collapsedGroups.map(String));
-      }
-
-      // Match 1:1 por ID primero, luego por nombre normalizado sin reutilizar duplicados
-      const unusedMeta = [...data.tracksMeta];
-      const takeMatch = (track) => {
-        let idx = unusedMeta.findIndex((m) => String(m.id) === String(track.id));
-        if (idx === -1) {
-          const targetName = normalizeTrackSigName(track.name);
-          idx = unusedMeta.findIndex(
-            (m) => Boolean(m.isGroup) === Boolean(track.isGroup) && normalizeTrackSigName(m.name) === targetName
-          );
-        }
-        if (idx === -1) return null;
-        return unusedMeta.splice(idx, 1)[0];
-      };
-
-      for (const t of this.tracks) {
-        const meta = takeMatch(t);
-        if (!meta) continue;
-        if (meta.role && ROLES[meta.role]) t.role = meta.role;
-        if (typeof meta.y === "number" && Number.isFinite(meta.y)) {
-          t.y = clamp(meta.y, -HALF_H + 0.25, HALF_H - 0.25);
-        }
-        if (meta.shape === "sphere" || meta.shape === "oblong") t.shape = meta.shape;
-        if (typeof meta.sizeScale === "number" && Number.isFinite(meta.sizeScale)) {
-          t.sizeScale = clamp(meta.sizeScale, 0.4, 2.4);
-        }
-        t.hidden = Boolean(meta.hidden);
-        t.locked = Boolean(meta.locked);
-        t.vGroupId = meta.vGroupId && validVGroups.has(meta.vGroupId) ? meta.vGroupId : null;
-      }
-
-      if (data.banks && typeof data.banks === "object") {
-        for (const slot of ["A", "B", "C", "D"]) {
-          if (data.banks[slot]?.tracks) this.banks[slot] = data.banks[slot];
-        }
-        if (data.activeBank && this.banks[data.activeBank]) {
-          this.activeBank = data.activeBank;
-        }
-      }
-
-      if (Array.isArray(data.scenes)) {
-        this.scenes = data.scenes.map((s) => ({ ...s }));
-        this.scenesAutoEnabled = Boolean(data.scenesAutoEnabled);
-      }
-
-      this.lastAutosaveAt = data.updatedAt || Date.now();
-      this.lastSessionRestored = true;
-      this.emit("session-restored", { updatedAt: this.lastAutosaveAt });
-      return true;
+      return this._applySavedSessionData(JSON.parse(raw));
     } catch (err) {
       console.warn("No se pudo restaurar autoguardado de sesión:", err);
       return false;
     }
+  }
+
+  getSavedSessionsCount() {
+    return this._readSessionsIndex().length;
+  }
+
+  listSavedSessions() {
+    const currentKey = this.tracks.length > 0 ? this.computeSessionSignature().key : null;
+    return this._readSessionsIndex()
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      .map((entry) => {
+        const rawNames = Array.isArray(entry.trackNames) ? entry.trackNames : [];
+        const cleanNames = rawNames
+          .map((n) => String(n).replace(/^[GT]:/, ""))
+          .filter(Boolean);
+        return {
+          key: entry.key,
+          updatedAt: entry.updatedAt || 0,
+          trackCount: cleanNames.length,
+          previewNames: cleanNames.slice(0, 4).join(", ") + (cleanNames.length > 4 ? "…" : ""),
+          isCurrent: Boolean(currentKey && entry.key === currentKey),
+        };
+      });
+  }
+
+  loadSavedSessionByKey(key) {
+    if (!key || this.tracks.length === 0) return false;
+    let raw = null;
+    try {
+      raw = localStorage.getItem(SESSION_PREFIX + key);
+    } catch {}
+    if (!raw) return false;
+    try {
+      const ok = this._applySavedSessionData(JSON.parse(raw));
+      if (ok) {
+        this.emit("groups");
+        this.emit("banks-changed");
+        this.emit("scenes-changed");
+        this.emit("snapshot-applied");
+      }
+      return ok;
+    } catch (err) {
+      console.warn("Error aplicando sesión guardada:", err);
+      return false;
+    }
+  }
+
+  deleteSavedSession(key) {
+    if (!key) return false;
+    try {
+      localStorage.removeItem(SESSION_PREFIX + key);
+    } catch {}
+    const nextIndex = this._readSessionsIndex().filter((e) => e.key !== key);
+    this._writeSessionsIndex(nextIndex);
+    if (this._restoredSessionKey === key) {
+      this.lastAutosaveAt = null;
+      this.lastSessionRestored = false;
+    }
+    this.emit("session-cleared", { scope: "single", key });
+    return true;
+  }
+
+  clearCurrentSavedSession() {
+    clearTimeout(this._autosaveTimer);
+    this._autosaveTimer = null;
+    if (this.tracks.length === 0) return false;
+    const { key } = this.computeSessionSignature();
+    return this.deleteSavedSession(key);
+  }
+
+  clearAllSavedSessions() {
+    clearTimeout(this._autosaveTimer);
+    this._autosaveTimer = null;
+    const index = this._readSessionsIndex();
+    for (const entry of index) {
+      try {
+        localStorage.removeItem(SESSION_PREFIX + entry.key);
+      } catch {}
+    }
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(SESSION_PREFIX)) localStorage.removeItem(k);
+      }
+      localStorage.removeItem(SESSIONS_INDEX_KEY);
+    } catch {}
+    this.lastAutosaveAt = null;
+    this.lastSessionRestored = false;
+    this.emit("session-cleared", { scope: "all" });
+    return true;
   }
 
   buildExportPayload() {

@@ -5,6 +5,7 @@
 export const ROLES = {
   sub_808: {
     label: "808 / Sub",
+    iconKey: "sub",
     defaultY: -2.65,
     sizeFactor: 2.05,
     shape: "sphere",
@@ -13,6 +14,7 @@ export const ROLES = {
   },
   kick: {
     label: "Kick",
+    iconKey: "kick",
     defaultY: -2.35,
     sizeFactor: 1.75,
     shape: "sphere",
@@ -21,6 +23,7 @@ export const ROLES = {
   },
   bass: {
     label: "Bass",
+    iconKey: "bass",
     defaultY: -1.95,
     sizeFactor: 1.85,
     shape: "sphere",
@@ -29,6 +32,7 @@ export const ROLES = {
   },
   floor_tom: {
     label: "Floor Tom",
+    iconKey: "tom",
     defaultY: -1.15,
     sizeFactor: 1.15,
     shape: "sphere",
@@ -37,6 +41,7 @@ export const ROLES = {
   },
   tom: {
     label: "Toms",
+    iconKey: "tom",
     defaultY: -0.60,
     sizeFactor: 0.95,
     shape: "sphere",
@@ -45,6 +50,7 @@ export const ROLES = {
   },
   snare: {
     label: "Snare",
+    iconKey: "snare",
     defaultY: -0.35,
     sizeFactor: 1.10,
     shape: "sphere",
@@ -53,6 +59,7 @@ export const ROLES = {
   },
   drums: {
     label: "Drums / Kit",
+    iconKey: "drums",
     defaultY: -0.90,
     sizeFactor: 1.35,
     shape: "sphere",
@@ -61,6 +68,7 @@ export const ROLES = {
   },
   rhythm_gtr_l: {
     label: "Guitar L",
+    iconKey: "guitar",
     defaultY: 0.10,
     sizeFactor: 1.05,
     shape: "sphere",
@@ -69,6 +77,7 @@ export const ROLES = {
   },
   rhythm_gtr_r: {
     label: "Guitar R",
+    iconKey: "guitar",
     defaultY: 0.15,
     sizeFactor: 1.05,
     shape: "sphere",
@@ -77,6 +86,7 @@ export const ROLES = {
   },
   guitar: {
     label: "Guitar",
+    iconKey: "guitar",
     defaultY: 0.25,
     sizeFactor: 1.05,
     shape: "sphere",
@@ -85,6 +95,7 @@ export const ROLES = {
   },
   lead_gtr: {
     label: "Lead Guitar",
+    iconKey: "guitar",
     defaultY: 0.85,
     sizeFactor: 1.15,
     shape: "sphere",
@@ -93,6 +104,7 @@ export const ROLES = {
   },
   lead_vox: {
     label: "Lead Vox",
+    iconKey: "vocal",
     defaultY: 0.55,
     sizeFactor: 1.20,
     shape: "sphere",
@@ -101,6 +113,7 @@ export const ROLES = {
   },
   backing_vox: {
     label: "Backing Vox",
+    iconKey: "backing_vox",
     defaultY: 1.35,
     sizeFactor: 0.90,
     shape: "oblong",
@@ -109,6 +122,7 @@ export const ROLES = {
   },
   piano_keys: {
     label: "Piano / Keys",
+    iconKey: "keys",
     defaultY: 0.65,
     sizeFactor: 1.15,
     shape: "oblong",
@@ -117,6 +131,7 @@ export const ROLES = {
   },
   synth_pad: {
     label: "Synth / Pad",
+    iconKey: "synth",
     defaultY: 1.10,
     sizeFactor: 1.15,
     shape: "oblong",
@@ -125,6 +140,7 @@ export const ROLES = {
   },
   hihat: {
     label: "Hi-Hat",
+    iconKey: "hihat",
     defaultY: 2.25,
     sizeFactor: 0.52,
     shape: "sphere",
@@ -133,6 +149,7 @@ export const ROLES = {
   },
   overhead: {
     label: "OH / Cymbals",
+    iconKey: "cymbal",
     defaultY: 2.55,
     sizeFactor: 0.58,
     shape: "sphere",
@@ -141,6 +158,7 @@ export const ROLES = {
   },
   bus: {
     label: "Group Bus",
+    iconKey: "bus",
     defaultY: 0.0,
     sizeFactor: 1.10,
     shape: "sphere",
@@ -149,6 +167,7 @@ export const ROLES = {
   },
   other: {
     label: "Otro",
+    iconKey: "other",
     defaultY: 0.0,
     sizeFactor: 0.90,
     shape: "sphere",
@@ -156,6 +175,11 @@ export const ROLES = {
     eqTip: "Tip general (p. 104): Escuchá primero 4 cosas: Barro (100-400Hz), Graves (40-60Hz), Irritación (800-5kHz) y Brillo (5-8kHz)."
   }
 };
+
+export function getRoleIconKey(role, isGroup = false) {
+  if (isGroup) return ROLES.bus.iconKey;
+  return ROLES[role]?.iconKey || ROLES.other.iconKey;
+}
 
 export function autoDetectRole(name, isGroup = false) {
   if (isGroup) return "bus";

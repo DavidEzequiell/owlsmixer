@@ -155,36 +155,54 @@ export const EQ_ADAPTERS = [
 // =========================================================================
 // DYNAMICS / COMPRESSOR ADAPTERS (Detección rápida + Sidechain badge)
 // =========================================================================
+// =========================================================================
+// DYNAMICS / COMPRESSOR ADAPTERS (Detección rápida + Sidechain + Ducking)
+// =========================================================================
 export const DYNAMICS_ADAPTERS = [
   {
     id: "ableton_compressor",
     label: "Compressor",
     matchDevice: (name) => name === "compressor" || (name.includes("compressor") && !name.includes("glue") && !name.includes("multiband")),
     sidechainNames: ["s/c on", "sidechain", "s/c listen", "external"],
+    thresholdNames: ["threshold"],
+    ratioNames: ["ratio"],
+    gainNames: ["output gain", "gain"],
   },
   {
     id: "ableton_glue_comp",
     label: "Glue Compressor",
     matchDevice: (name) => name.includes("glue compressor"),
     sidechainNames: ["s/c on", "sidechain", "external"],
+    thresholdNames: ["threshold"],
+    ratioNames: ["ratio"],
+    gainNames: ["makeup", "output gain"],
   },
   {
     id: "fabfilter_pro_c",
     label: "FabFilter Pro-C",
     matchDevice: (name) => name.includes("pro-c") || name.includes("pro c"),
     sidechainNames: ["side chain", "sidechain", "ext"],
+    thresholdNames: ["threshold"],
+    ratioNames: ["ratio"],
+    gainNames: ["output level", "gain"],
   },
   {
     id: "ableton_multiband",
     label: "Multiband Dynamics",
     matchDevice: (name) => name.includes("multiband"),
     sidechainNames: [],
+    thresholdNames: [],
+    ratioNames: [],
+    gainNames: ["output"],
   },
   {
     id: "generic_limiter",
     label: "Limiter",
     matchDevice: (name) => name.includes("limiter") || name.includes("pro-l"),
     sidechainNames: [],
+    thresholdNames: ["ceiling", "gain"],
+    ratioNames: [],
+    gainNames: ["gain"],
   },
 ];
 
@@ -315,6 +333,7 @@ export async function findTrackEqDevice(track, cachedDevices = null) {
 }
 
 // Detección rápida de Compresor / Dinámica / Sidechain para badges en la lista de pistas
+// Detección rápida de Compresor / Dinámica / Sidechain para badges y Ducking
 export async function findTrackDynamicsDevice(track, cachedDevices = null) {
   if (!track) return null;
   let devices = cachedDevices;
@@ -347,11 +366,40 @@ export async function findTrackDynamicsDevice(track, cachedDevices = null) {
     return {
       device: dev,
       deviceName: rawName,
+      adapter,
       adapterName: adapter.label,
       hasSidechain,
+      canDuck: Boolean(adapter.thresholdNames?.length),
     };
   }
   return null;
+}
+
+// Binding on-demand de Compressor/Dinámica para aplicar Ducking desde Priorizar
+export async function bindDynamicsDevice(device, adapter) {
+  if (!device || !adapter) return null;
+  let params = [];
+  try {
+    params = await device.get("parameters");
+  } catch {
+    return null;
+  }
+
+  const [thresholdParam, ratioParam, gainParam, sidechainParam] = await Promise.all([
+    hydrateParamBounds(findParamByNames(params, adapter.thresholdNames)),
+    hydrateParamBounds(findParamByNames(params, adapter.ratioNames)),
+    hydrateParamBounds(findParamByNames(params, adapter.gainNames)),
+    hydrateParamBounds(findParamByNames(params, adapter.sidechainNames)),
+  ]);
+
+  return {
+    device,
+    adapter,
+    thresholdParam,
+    ratioParam,
+    gainParam,
+    sidechainParam,
+  };
 }
 
 // Binding completo on-demand (paralelo para máxima velocidad)

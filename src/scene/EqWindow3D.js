@@ -27,6 +27,10 @@ export class EqWindow3D {
     this.nodesGroup = new THREE.Group();
     this.group.add(this.ghostGroup, this.barsGroup, this.nodesGroup);
 
+    // Geometrías compartidas para evitar crear/destruir buffers WebGL en cada frame de arrastre
+    this._unitBoxGeo = new THREE.BoxGeometry(1, 1, 0.08);
+    this._nodeSphereGeo = new THREE.SphereGeometry(0.16, 20, 16);
+
     this.buildBackdrop();
     this.buildInteractiveStrips();
   }
@@ -137,11 +141,21 @@ export class EqWindow3D {
   clearGroup(grp) {
     while (grp.children.length > 0) {
       const c = grp.children[0];
-      c.geometry?.dispose();
+      // Nunca disponer las geometrías compartidas (_unitBoxGeo / _nodeSphereGeo)
+      if (c.geometry && c.geometry !== this._unitBoxGeo && c.geometry !== this._nodeSphereGeo) {
+        c.geometry.dispose();
+      }
       c.material?.map?.dispose();
       c.material?.dispose();
       grp.remove(c);
     }
+  }
+
+  clearDynamic() {
+    this.clearGroup(this.barsGroup);
+    this.clearGroup(this.ghostGroup);
+    this.clearGroup(this.nodesGroup);
+    this.setHoveredStrip(-1);
   }
 
   drawGainBar(targetGroup, stripIdx, gainDb, colorHex, opacity, zPos, barScaleY = 0.56) {
@@ -149,13 +163,14 @@ export class EqWindow3D {
     const xEnd = eqGainToX(gainDb);
     const width = Math.max(0.06, Math.abs(xEnd));
     const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(width, STRIP_H * barScaleY, 0.08),
+      this._unitBoxGeo,
       new THREE.MeshBasicMaterial({
         color: new THREE.Color(colorHex),
         transparent: true,
         opacity,
       })
     );
+    mesh.scale.set(width, STRIP_H * barScaleY, 1);
     mesh.position.set(xEnd / 2, stripCenterY(stripIdx), zPos);
     targetGroup.add(mesh);
   }
@@ -170,6 +185,9 @@ export class EqWindow3D {
     const item = sel[0];
     if (!item || !item.eq?.bound) return;
 
+    const bandLimit = item._ableton?.eqBinding?.bands?.length || item.eq.bands.length;
+    const activeBands = item.eq.bands.slice(0, bandLimit);
+
     // 1. Fantasmas de pistas en colisión ("Solar Eclipse" espectral)
     const collisions = store.mixAnalysis?.collisions || [];
     const rivalIds = new Set();
@@ -181,8 +199,10 @@ export class EqWindow3D {
     rivalIds.forEach((rid) => {
       const rival = store.getTrackById(rid);
       if (!rival || !rival.eq?.bound) return;
+      const rLimit = rival._ableton?.eqBinding?.bands?.length || rival.eq.bands.length;
+      const rivalBands = rival.eq.bands.slice(0, rLimit);
       for (let i = 0; i < GIBSON_EQ_STRIPS.length; i++) {
-        const hits = findBandsInStrip(rival.eq.bands, i);
+        const hits = findBandsInStrip(rivalBands, i);
         hits.forEach(({ band }) => {
           this.drawGainBar(this.ghostGroup, i, band.gainDb, rival.colorHex, 0.28, -0.18, 0.72);
         });
@@ -191,15 +211,16 @@ export class EqWindow3D {
 
     // 2. Barras por cada una de las 7 franjas de la pista seleccionada
     for (let i = 0; i < GIBSON_EQ_STRIPS.length; i++) {
-      const hits = findBandsInStrip(item.eq.bands, i);
+      const hits = findBandsInStrip(activeBands, i);
       hits.forEach(({ band }) => {
         const barCol = band.gainDb >= 0 ? "#22c55e" : "#ef4444";
         this.drawGainBar(this.barsGroup, i, band.gainDb, barCol, 0.65, 0.06, 0.48);
       });
     }
 
-    // 3. Nodos reales de las 8 bandas del EQ Eight
-    item.eq.bands.forEach((b) => {
+    // 3. Nodos reales de las bandas activas del EQ (con anti-solapamiento de etiquetas)
+    const placedLabels = [];
+    activeBands.forEach((b) => {
       if (!b.on) return;
       const isCutFilter = b.type <= 1 || b.type >= 6 || b.type === 4;
       const x = isCutFilter ? 0 : eqGainToX(b.gainDb);
@@ -207,7 +228,7 @@ export class EqWindow3D {
 
       const nodeCol = isCutFilter ? "#f59e0b" : b.gainDb >= 0 ? "#4ade80" : "#f87171";
       const sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.16, 20, 16),
+        this._nodeSphereGeo,
         new THREE.MeshStandardMaterial({
           color: new THREE.Color(nodeCol),
           emissive: new THREE.Color(nodeCol),
@@ -225,7 +246,16 @@ export class EqWindow3D {
 
       const lbl = makeTextSprite(valText, "#ffffff", 18, true);
       lbl.scale.set(2.35, 0.56, 1);
-      lbl.position.set(clamp(x + (x >= 0 ? 0.95 : -0.95), -HALF_W + 1.1, HALF_W - 1.1), y + 0.18, 0.28);
+
+      const lx = clamp(x + (x >= 0 ? 0.95 : -0.95), -HALF_W + 1.15, HALF_W - 1.15);
+      let ly = clamp(y + 0.18, -HALF_H + 0.35, HALF_H - 0.35);
+      for (const prev of placedLabels) {
+        if (Math.abs(prev.x - lx) < 2.0 && Math.abs(prev.y - ly) < 0.42) {
+          ly = clamp(ly + (ly <= prev.y ? -0.44 : 0.44), -HALF_H + 0.35, HALF_H - 0.35);
+        }
+      }
+      placedLabels.push({ x: lx, y: ly });
+      lbl.position.set(lx, ly, 0.28);
       this.nodesGroup.add(lbl);
     });
   }

@@ -4,41 +4,48 @@ import {
   createDefaultEqBands, eqNormToHz, hzToEqNorm, EQ_FILTER_TYPES,
 } from "../adapters/deviceAdapters.js";
 import { computeEqYShift, computeEqLowCutScale } from "../data/eqBands.js";
-import { dbToAbletonVol, abletonVolToDb, MasterLoudnessTracker } from "../engine/psychoacoustics.js";
+import {
+  dbToAbletonVol, abletonVolToDb, dbToAbletonMeter, MasterLoudnessTracker,
+} from "../engine/psychoacoustics.js";
 
 const db = (v) => Number(dbToAbletonVol(v).toFixed(3));
 
 const DEMO_TRACKS_BLUEPRINT = [
-  { id: "demo_bus_drums", name: "Drums",       color: "#ff5c5c", isGroup: true,  role: "drums",        pan:  0.00, vol: db(-2.6), sendA: 0.14, y: -0.90, shape: "sphere", pattern: "bus" },
+  { id: "demo_bus_drums", name: "Drums",       color: "#ff5c5c", isGroup: true,  role: "drums",        pan:  0.00, vol: db(-2.6), sendA: 0.14, y: -0.90, shape: "sphere", pattern: "bus",
+    dynInit: { deviceName: "Glue Compressor", adapterName: "Glue Compressor", hasSidechain: false, canDuck: true } },
   { id: "demo_kick",      name: "Kick",        color: "#ef4444", groupId: "demo_bus_drums", role: "kick",      pan:  0.00, vol: db(-2.4), sendA: 0.05, y: -2.35, shape: "sphere", pattern: "kick",
-    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HIGH_PASS, freqHz: 32, gainDb: 0, q: 0.35 }] },
+    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HP_12, freqHz: 32, gainDb: 0, q: 0.35 }] },
   { id: "demo_snare",     name: "Snare",       color: "#f97316", groupId: "demo_bus_drums", role: "snare",     pan: -0.04, vol: db(-2.8), sendA: 0.34, y: -0.35, shape: "sphere", pattern: "snare",
-    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HIGH_PASS, freqHz: 110, gainDb: 0, q: 0.38 }] },
+    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HP_12, freqHz: 110, gainDb: 0, q: 0.38 }] },
   { id: "demo_hihat",     name: "Hi-Hat",      color: "#eab308", groupId: "demo_bus_drums", role: "hihat",     pan: -0.62, vol: db(-6.5), sendA: 0.14, y:  2.25, shape: "sphere", pattern: "hihat",
-    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HIGH_PASS, freqHz: 380, gainDb: 0, q: 0.40 }] },
+    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HP_12, freqHz: 380, gainDb: 0, q: 0.40 }] },
   { id: "demo_oh",        name: "Overheads",   color: "#facc15", groupId: "demo_bus_drums", role: "overhead",  pan:  0.00, vol: db(-6.2), sendA: 0.24, y:  2.45, shape: "oblong", pattern: "oh",
-    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HIGH_PASS, freqHz: 280, gainDb: 0, q: 0.38 }] },
+    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HP_12, freqHz: 280, gainDb: 0, q: 0.38 }] },
 
   { id: "demo_bass",      name: "Bass P-Bass", color: "#22c55e", role: "bass", pan: -0.02, vol: db(-2.2), sendA: 0.04, y: -1.95, shape: "sphere", pattern: "bass",
-    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HIGH_PASS, freqHz: 35, gainDb: 0, q: 0.35 }] },
+    dynInit: { deviceName: "Compressor", adapterName: "Compressor", hasSidechain: true, canDuck: true },
+    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HP_12, freqHz: 35, gainDb: 0, q: 0.35 }] },
 
   { id: "demo_bus_gtrs",  name: "Guitars",     color: "#38bdf8", isGroup: true,  role: "guitar",       pan:  0.00, vol: db(-3.2), sendA: 0.22, y:  0.20, shape: "oblong", pattern: "bus" },
   { id: "demo_gtr_l",     name: "Rhythm Gtr L",color: "#0ea5e9", groupId: "demo_bus_gtrs", role: "rhythm_gtr_l", pan: -0.78, vol: db(-3.8), sendA: 0.28, y:  0.12, shape: "oblong", pattern: "gtr",
-    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HIGH_PASS, freqHz: 105, gainDb: 0, q: 0.40 }] },
+    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HP_12, freqHz: 105, gainDb: 0, q: 0.40 }] },
   { id: "demo_gtr_r",     name: "Rhythm Gtr R",color: "#0284c7", groupId: "demo_bus_gtrs", role: "rhythm_gtr_r", pan:  0.80, vol: db(-3.8), sendA: 0.28, y:  0.18, shape: "oblong", pattern: "gtr",
-    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HIGH_PASS, freqHz: 110, gainDb: 0, q: 0.40 }] },
+    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HP_12, freqHz: 110, gainDb: 0, q: 0.40 }] },
   { id: "demo_lead_gtr",  name: "Lead Guitar", color: "#6366f1", groupId: "demo_bus_gtrs", role: "lead_gtr",     pan:  0.22, vol: db(-2.6), sendA: 0.38, y:  0.88, shape: "sphere", pattern: "lead",
-    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HIGH_PASS, freqHz: 140, gainDb: 0, q: 0.40 }] },
+    dynInit: { deviceName: "Compressor", adapterName: "Compressor", hasSidechain: false, canDuck: true },
+    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HP_12, freqHz: 140, gainDb: 0, q: 0.40 }] },
 
   { id: "demo_vox",       name: "Lead Vocal",  color: "#ec4899", role: "lead_vox",    pan:  0.00, vol: db(-1.8), sendA: 0.30, y:  0.58, shape: "sphere", pattern: "vox",
+    dynInit: { deviceName: "Compressor", adapterName: "Compressor", hasSidechain: false, canDuck: true },
     eqInit: [
-      { idx: 0, on: true, type: EQ_FILTER_TYPES.HIGH_PASS, freqHz: 95, gainDb: 0, q: 0.40 },
+      { idx: 0, on: true, type: EQ_FILTER_TYPES.HP_12, freqHz: 95, gainDb: 0, q: 0.40 },
       { idx: 3, on: true, type: EQ_FILTER_TYPES.BELL, freqHz: 3200, gainDb: 1.8, q: 0.46 },
     ] },
   { id: "demo_bvox",      name: "Backing Vox", color: "#f472b6", role: "backing_vox", pan: -0.45, vol: db(-7.2), sendA: 0.52, y:  1.38, shape: "oblong", pattern: "pad",
-    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HIGH_PASS, freqHz: 180, gainDb: 0, q: 0.42 }] },
+    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HP_12, freqHz: 180, gainDb: 0, q: 0.42 }] },
   { id: "demo_pad",       name: "Analog Pad",  color: "#a855f7", role: "synth_pad",   pan:  0.00, vol: db(-8.5), sendA: 0.62, y:  1.05, shape: "oblong", pattern: "pad",
-    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HIGH_PASS, freqHz: 160, gainDb: 0, q: 0.38 }] },
+    dynInit: { deviceName: "Compressor", adapterName: "Compressor", hasSidechain: true, canDuck: true },
+    eqInit: [{ idx: 0, on: true, type: EQ_FILTER_TYPES.HP_12, freqHz: 160, gainDb: 0, q: 0.38 }] },
 ];
 
 function createMockParam(bounds = { min: 0, max: 1 }) {
@@ -152,6 +159,7 @@ class DemoService {
         _eqLowCutScale: computeEqLowCutScale(bands),
         _lastEqYShift: computeEqYShift(bands),
         _demoPattern: bp.pattern || "gtr",
+        _lastCarve: null,
         eqCuts: bands
           .filter((b) => b.on && b.gainDb < -0.5 && b.type >= 2 && b.type <= 5)
           .map((b) => ({ freqHz: b.freqHz, gainDb: b.gainDb })),
@@ -163,6 +171,14 @@ class DemoService {
           deviceName: "EQ Eight (Demo)",
           adapterName: "EQ Eight · Demo",
           bands,
+        },
+        dynamics: {
+          hasDevice: Boolean(bp.dynInit),
+          deviceName: bp.dynInit?.deviceName || null,
+          adapterName: bp.dynInit?.adapterName || null,
+          hasSidechain: Boolean(bp.dynInit?.hasSidechain),
+          canDuck: Boolean(bp.dynInit?.canDuck),
+          duckSteps: 0,
         },
         _ableton: null,
       };
@@ -316,9 +332,9 @@ class DemoService {
         const gainDb = abletonVolToDb(t.vol);
         const linGain = Number.isFinite(gainDb) ? Math.pow(10, gainDb / 20) : 0;
 
-        // Meter visual 0..1 por pista
-        const lvl = clamp(env * jitter * Math.min(1.4, linGain * 0.88), 0, 1);
-        t.meter = lvl;
+        // Meter por pista en la misma escala de vúmetro de Live (0.92 ≈ 0 dBFS)
+        const trackLin = env * jitter * linGain * 0.55;
+        t.meter = trackLin > 1e-4 ? dbToAbletonMeter(20 * Math.log10(trackLin)) : 0;
 
         // Suma estéreo (pan law -3 dB) para Master LUFS realista
         const panNorm = (clamp(t.pan, -1, 1) + 1) * 0.5;
@@ -340,9 +356,9 @@ class DemoService {
 
       const rmsL = Math.sqrt(sumPowL);
       const rmsR = Math.sqrt(sumPowR);
-      // Convertir RMS lineal a escala de output_meter de Ableton (0.85 ≈ 0 dBFS)
-      const meterL = rmsL > 1e-4 ? dbToAbletonVol(20 * Math.log10(rmsL)) : 0;
-      const meterR = rmsR > 1e-4 ? dbToAbletonVol(20 * Math.log10(rmsR)) : 0;
+      // Convertir RMS lineal a escala real de output_meter de Ableton (0.92 ≈ 0 dBFS)
+      const meterL = rmsL > 1e-4 ? dbToAbletonMeter(20 * Math.log10(rmsL)) : 0;
+      const meterR = rmsR > 1e-4 ? dbToAbletonMeter(20 * Math.log10(rmsR)) : 0;
       this.masterTracker.pushMeter(meterL, meterR);
 
       if (now - this.lastMasterEmit > 120) {
@@ -350,6 +366,8 @@ class DemoService {
         store.masterStats.shortTermLufs = this.masterTracker.shortTermLufs;
         store.masterStats.peakDb = this.masterTracker.peakDb;
         store.masterStats.clipping = this.masterTracker.clipping;
+        store.masterStats.rawMeterMax = this.masterTracker.rawMeterMax;
+        store.masterStats.crestEstimateDb = this.masterTracker.crestEstimateDb;
         store.emit("master-meter");
       }
     }, 50);

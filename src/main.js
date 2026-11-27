@@ -66,34 +66,94 @@ stage.onLiveMixTick = () => {
 
 const settingsModal = new SettingsModalUI();
 
+let historyBusy = false;
+
 async function performUndo() {
+  if (historyBusy || abletonService.isBusy()) return;
   const snap = store.popUndo();
   if (!snap) return;
-  await withLoading("Deshaciendo cambios...", () => abletonService.applySnapshot(snap));
+  historyBusy = true;
+  try {
+    if (store.isDryBypass) {
+      store.isDryBypass = false;
+      store.dryReturnSnapshot = null;
+      store.emit("banks-changed");
+    }
+    await abletonService.applySnapshot(snap, { label: "Deshaciendo cambios..." });
+  } finally {
+    historyBusy = false;
+  }
 }
 
 async function performRedo() {
+  if (historyBusy || abletonService.isBusy()) return;
   const snap = store.popRedo();
   if (!snap) return;
-  await withLoading("Rehaciendo cambios...", () => abletonService.applySnapshot(snap));
+  historyBusy = true;
+  try {
+    if (store.isDryBypass) {
+      store.isDryBypass = false;
+      store.dryReturnSnapshot = null;
+      store.emit("banks-changed");
+    }
+    await abletonService.applySnapshot(snap, { label: "Rehaciendo cambios..." });
+  } finally {
+    historyBusy = false;
+  }
 }
 
 async function handleImportMix(data) {
-  if (!data || !data.snapshot) throw new Error("Formato de mix inválido");
-  await withLoading("Cargando Mix Snapshot...", async () => {
-    store.pushHistory(store.captureSnapshot());
-    if (data.settings) store.updateSettings(data.settings);
-    if (Array.isArray(data.scenes)) {
-      store.scenes = data.scenes;
-      store.emit("scenes-changed");
-    }
+  if (!data || !data.snapshot || !Array.isArray(data.snapshot.tracks) || data.snapshot.tracks.length === 0) {
+    throw new Error("El archivo JSON no contiene un snapshot de pistas válido.");
+  }
+  if (historyBusy || abletonService.isBusy()) return;
 
-    await abletonService.applySnapshot(data.snapshot);
-    if (data.reverb && store.reverbInfo.connected) {
-      if (typeof data.reverb.decay === "number") abletonService.setReverbDecay(data.reverb.decay, true);
-      if (typeof data.reverb.predelay === "number") abletonService.setReverbPredelay(data.reverb.predelay, true);
-    }
-  });
+  historyBusy = true;
+  try {
+    await withLoading("Cargando Mix Snapshot...", async () => {
+      if (store.isDryBypass) {
+        store.isDryBypass = false;
+        store.dryReturnSnapshot = null;
+        store.emit("banks-changed");
+      }
+
+      store.pushHistory(store.captureSnapshot());
+      if (data.settings && typeof data.settings === "object") {
+        store.updateSettings(data.settings);
+      }
+      if (Array.isArray(data.scenes)) {
+        store.scenes = data.scenes
+          .filter((s) => s && typeof s === "object")
+          .map((s, idx) => {
+            const beat = Math.max(0, Number(s.beat) || 0);
+            const bar = Math.floor(beat / 4) + 1;
+            const bank = ["A", "B", "C", "D"].includes(s.bank) ? s.bank : "A";
+            return {
+              id: String(s.id || `sc_imp_${Date.now().toString(36)}_${idx}`),
+              beat,
+              bar,
+              bank,
+              label: String(s.label || `Compás ${bar}`).trim(),
+            };
+          })
+          .sort((a, b) => a.beat - b.beat);
+        store.lastSceneRuleId = null;
+        store.emit("scenes-changed");
+      }
+
+      const res = await abletonService.applySnapshot(data.snapshot, { label: "Aplicando mix importado..." });
+      if (data.reverb && store.reverbInfo.connected) {
+        if (typeof data.reverb.decay === "number") abletonService.setReverbDecay(data.reverb.decay, true);
+        if (typeof data.reverb.predelay === "number") abletonService.setReverbPredelay(data.reverb.predelay, true);
+      }
+
+      if (res && res.total > 0 && res.matched < res.total) {
+        console.info(`Mix importado: ${res.matched}/${res.total} pistas coincidieron con la sesión actual.`);
+      }
+    });
+  } finally {
+    historyBusy = false;
+  }
 }
 
 const windowManager = new WindowManager();
@@ -195,7 +255,7 @@ const sidebar = new SidebarUI({
 
 const psychoPanel = new PsychoPanelUI();
 
-function runMixAnalysis() {
+function runMixAnalysis(forceUI = false) {
   if (store.viewMode !== "mix") return;
   store.mixAnalysis = analyzeMixSpace(
     store.tracks,
@@ -204,7 +264,7 @@ function runMixAnalysis() {
     store.settings.lufsTarget
   );
   stage.updateCollisions(store.mixAnalysis.collisions);
-  psychoPanel.updateAnalysis();
+  psychoPanel.updateAnalysis(forceUI);
 }
 
 function bindCollidingRivalsEq(item) {
@@ -271,6 +331,9 @@ window.addEventListener("pointerup", () => {
 
 // Portal de HelpTexts estilo Salesforce (?)
 const tooltipEl = document.getElementById("sf-tooltip-portal");
+if (tooltipEl && tooltipEl.parentElement !== document.body) {
+  document.body.appendChild(tooltipEl);
+}
 document.addEventListener("mouseover", (e) => {
   const icon = e.target.closest?.(".help-icon[data-help]");
   if (!icon) return;
@@ -389,6 +452,11 @@ store.on("view-mode", (mode) => {
 store.on("eq-changed", () => {
   stage.eqWindow.sync();
   hud.syncViewModeUI();
+  if (store.viewMode === "mix") runMixAnalysis();
+});
+
+store.on("request-mix-analysis", () => {
+  runMixAnalysis(true);
 });
 
 store.on("groups", () => {
@@ -421,11 +489,20 @@ store.on("scenes-changed", () => sidebar.syncScenesUI());
 store.on("song-time", (beats) => sidebar.updateSongBar(beats));
 
 async function rescanAll() {
+  if (historyBusy || abletonService.isBusy()) return;
   hud.setStatus("warn", abletonService.isDemoMode() ? "Reiniciando Demo..." : "Escaneando...");
   await withLoading(
-    abletonService.isDemoMode() ? "Reiniciando sesión Demo..." : "Escaneando pistas y efectos de Ableton...",
+    abletonService.isDemoMode()
+      ? "Reiniciando sesión Demo..."
+      : store.isDryBypass
+        ? "Saliendo de DRY y escaneando Ableton..."
+        : "Escaneando pistas y efectos de Ableton...",
     async () => {
       try {
+        // Si estabas en DRY, restaura primero tu mezcla real para no leer los faders secos como mezcla
+        if (store.isDryBypass && !abletonService.isDemoMode()) {
+          await abletonService.toggleDryBypass();
+        }
         await abletonService.scanAll();
       } catch (err) {
         hud.setStatus("err", "Error escaneando");

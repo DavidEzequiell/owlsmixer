@@ -39,6 +39,52 @@ export function dbToAbletonVol(db) {
   if (db >= 0) return clamp(0.85 + (db / 6.0) * 0.15, 0.85, 1.0);
   return clamp(0.85 * Math.pow(10, db / 47.0), 0.0, 0.85);
 }
+// =========================================================================
+// 1B. CURVA DEL VÚMETRO VISUAL DE ABLETON LIVE (output_meter_left/right)
+//     A diferencia del fader (0.85 = 0 dB), el vúmetro de Live ubica
+//     0 dBFS en ~0.92, -6 dBFS en ~0.85 y +6 dBFS en 1.00.
+// =========================================================================
+const ABLETON_METER_TABLE = [
+  [0.00, -70],
+  [0.10, -64],
+  [0.20, -56],
+  [0.35, -45],
+  [0.50, -34],
+  [0.64, -23],
+  [0.72, -16],
+  [0.78, -12],
+  [0.85,  -6],
+  [0.92,   0],
+  [1.00,   6],
+];
+
+export function abletonMeterToDb(m) {
+  const v = clamp(Number(m) || 0, 0, 1);
+  if (v <= 0.0005) return -Infinity;
+  for (let i = 1; i < ABLETON_METER_TABLE.length; i++) {
+    const [m0, db0] = ABLETON_METER_TABLE[i - 1];
+    const [m1, db1] = ABLETON_METER_TABLE[i];
+    if (v <= m1) {
+      const t = (v - m0) / (m1 - m0);
+      return db0 + t * (db1 - db0);
+    }
+  }
+  return 6;
+}
+
+export function dbToAbletonMeter(db) {
+  if (!Number.isFinite(db) || db <= -70) return 0;
+  if (db >= 6) return 1;
+  for (let i = 1; i < ABLETON_METER_TABLE.length; i++) {
+    const [m0, db0] = ABLETON_METER_TABLE[i - 1];
+    const [m1, db1] = ABLETON_METER_TABLE[i];
+    if (db <= db1) {
+      const t = (db - db0) / (db1 - db0);
+      return clamp(m0 + t * (m1 - m0), 0, 1);
+    }
+  }
+  return 1;
+}
 
 // =========================================================================
 // 2. ESCALA Z LOGARÍTMICA (6 Apparent Volume Levels de Gibson, Chart 12)
@@ -71,6 +117,41 @@ export function getApparentVolumeLevel(db) {
   if (db < -8)  return { lvl: 3, label: "LVL 3 · Base Rítmica" };
   if (db < -1)  return { lvl: 2, label: "LVL 2 · Lead / Frente" };
   return { lvl: 1, label: "LVL 1 · Extremo" };
+}
+// =========================================================================
+// 2B. TRUE DEPTH (Eje Z compuesto: Volumen + Reverb/DRR, 100% bidireccional)
+// =========================================================================
+export function computeTrueDepthZ(vol, sendA = 0, reverbDecay = 0.45) {
+  const volZ = volToZLog(vol);
+  const decayFactor = 0.65 + clamp(reverbDecay, 0, 1) * 0.70;
+  const revPush = clamp(sendA, 0, 1) * 2.4 * decayFactor;
+  return clamp(volZ - revPush, -HALF_D, HALF_D);
+}
+
+// Inversa exacta para arrastrar en Z en modo True Depth sin saltos ni desfasajes
+export function solveTrueDepthDrag(startVol, startSendA, dz, reverbDecay = 0.45) {
+  const decayFactor = 0.65 + clamp(reverbDecay, 0, 1) * 0.70;
+  const kRev = 2.4 * decayFactor;
+  const startVolZ = volToZLog(startVol);
+  const startZ = clamp(startVolZ - clamp(startSendA, 0, 1) * kRev, -HALF_D, HALF_D);
+  const targetZ = clamp(startZ + dz, -HALF_D, HALF_D);
+  const effectiveDz = targetZ - startZ;
+
+  // 28% del desplazamiento en Z lo absorbe la reverb (DRR) y el resto el nivel directo
+  const desiredSendA = clamp(startSendA - (effectiveDz * 0.28) / kRev, 0, 1);
+  const neededVolZ = clamp(targetZ + desiredSendA * kRev, -HALF_D, HALF_D);
+  const nextVol = zToVolLog(neededVolZ);
+
+  const actualVolZ = volToZLog(nextVol);
+  const finalSendA = Math.abs(actualVolZ - neededVolZ) > 0.01
+    ? clamp((actualVolZ - targetZ) / kRev, 0, 1)
+    : desiredSendA;
+
+  return {
+    vol: nextVol,
+    sendA: finalSendA,
+    z: computeTrueDepthZ(nextVol, finalSendA, reverbDecay),
+  };
 }
 
 // =========================================================================
@@ -155,13 +236,24 @@ export function computePsychoRadius(item, { freqSizing = true, roleSizeFactor = 
   const clampedDb = Number.isFinite(db) ? clamp(db, DB_MIN, DB_MAX) : DB_MIN;
 
   const apparentDb = clamp(clampedDb + kWeightDb(hz) * 0.25, DB_MIN, DB_MAX + 3);
-  const volFactor = 0.36 + ((apparentDb - DB_MIN) / (DB_SPAN + 3)) * 0.76;
+  const volFactor = 0.32 + ((apparentDb - DB_MIN) / (DB_SPAN + 3)) * 0.64;
 
-  const physFootprint = freqSizing ? (freqMaskingFootprint(hz) * 0.75 + roleSizeFactor * 0.25) : 0.85;
+  const physFootprint = freqSizing ? (freqMaskingFootprint(hz) * 0.75 + roleSizeFactor * 0.25) : 0.80;
   const manualScale = item.sizeScale ?? 1.0;
-  const energyScale = autoSize ? (item.crestScale ?? 1.0) * clamp(lowCutScale, 0.58, 1.05) : 1.0;
 
-  return clamp(volFactor * physFootprint * manualScale * energyScale, 0.18, 2.45);
+  // Reducción real de huella física cuando se esculpe con EQ carving o ducking
+  let carveCutDb = 0;
+  if (Array.isArray(item.eqCuts)) {
+    for (const c of item.eqCuts) {
+      if (c.gainDb < -0.5) carveCutDb += Math.min(6.5, -c.gainDb);
+    }
+  }
+  carveCutDb += (item.dynamics?.duckSteps || 0) * (item.dynamics?.hasSidechain ? 2.0 : 1.0);
+  const carveScale = clamp(1 - carveCutDb * 0.015, 0.80, 1.0);
+
+  const energyScale = autoSize ? (item.crestScale ?? 1.0) * clamp(lowCutScale, 0.60, 1.05) : 1.0;
+
+  return clamp(volFactor * physFootprint * manualScale * energyScale * carveScale, 0.18, 1.65);
 }
 
 // =========================================================================
@@ -197,21 +289,49 @@ export function pickSuggestedWinner(a, b) {
 }
 
 // Calcula cuánto alivio aporta un recorte Bell/Shelf ya hecho cerca del choque
+// Calcula cuánto alivio real en dB aportan recortes EQ o ducking ya hechos cerca del choque
 function getCarveRelief(trackA, trackB, targetHz) {
   const targetBark = hzToBark(targetHz);
-  let relief = 0;
+  let reliefDb = 0;
+  const appliedCuts = [];
+
   for (const t of [trackA, trackB]) {
-    if (!Array.isArray(t.eqCuts)) continue;
-    for (const cut of t.eqCuts) {
-      if (cut.gainDb >= -0.5) continue;
-      const distBark = Math.abs(hzToBark(cut.freqHz) - targetBark);
-      if (distBark < 0.95) {
-        const proximity = 1 - distBark / 0.95;
-        relief += clamp((-cut.gainDb / 6.0) * proximity * 0.72, 0, 0.75);
+    if (Array.isArray(t.eqCuts)) {
+      for (const cut of t.eqCuts) {
+        if (cut.gainDb >= -0.5) continue;
+        const distBark = Math.abs(hzToBark(cut.freqHz) - targetBark);
+        if (distBark < 1.15) {
+          const proximity = 1 - distBark / 1.15;
+          const contrib = clamp(-cut.gainDb * proximity * 0.88, 0, 5.5);
+          reliefDb += contrib;
+          appliedCuts.push({
+            trackId: t.id,
+            trackName: t.name,
+            freqHz: Math.round(cut.freqHz),
+            gainDb: Number(cut.gainDb.toFixed(1)),
+          });
+        }
       }
     }
+
+    const duckSteps = t.dynamics?.duckSteps || 0;
+    if (duckSteps > 0) {
+      const perStep = t.dynamics?.hasSidechain ? 2.2 : 1.15;
+      reliefDb += clamp(duckSteps * perStep, 0, 5.0);
+      appliedCuts.push({
+        trackId: t.id,
+        trackName: t.name,
+        isDuck: true,
+        hasSidechain: Boolean(t.dynamics?.hasSidechain),
+        steps: duckSteps,
+      });
+    }
   }
-  return clamp(relief, 0, 0.78);
+
+  return {
+    reliefDb: clamp(reliefDb, 0, 7.5),
+    appliedCuts,
+  };
 }
 
 // Modelo direccional de enmascaramiento (Terhardt / BS.1387 + BMLD + DRR)
@@ -238,19 +358,24 @@ export function computeDirectionalMasking(masker, target, reverbDecay = 0.45) {
 
   const freqAttenDb = effectiveBarkGap * slopeDbPerBark;
 
-  // Desenmascaramiento binaural (BMLD): separar en pan libera hasta ~11.5 dB,
+  // Desenmascaramiento binaural (BMLD): separar en pan libera hasta ~12 dB,
   // pero las colas de reverb difunden la localización estéreo (DRR)
   const panDiff = Math.abs((masker.item.pan ?? 0) - (target.item.pan ?? 0)); // 0..2
   const avgSend = ((masker.item.sendA || 0) + (target.item.sendA || 0)) * 0.5;
   const reverbBlur = clamp(avgSend * (0.65 + reverbDecay * 0.75), 0, 0.85);
   const effectivePanSep = clamp(panDiff * 0.5, 0, 1) * (1 - reverbBlur * 0.65);
 
-  const bmldFreqFactor = target.hz < 1500 ? 1.12 : 0.92;
-  const bmldReleaseDb = effectivePanSep * 11.0 * bmldFreqFactor;
+  const bmldFreqFactor = target.hz < 1500 ? 1.15 : 0.95;
+  const bmldReleaseDb = effectivePanSep * 12.0 * bmldFreqFactor;
 
-  // Margen de claridad (+6 dB): si la excitación del masker entra a menos de 6 dB del target, empieza el eclipse
-  const effectiveMaskerDb = masker.apparentDb - freqAttenDb - bmldReleaseDb;
-  const maskingDb = effectiveMaskerDb - target.apparentDb + 6.0;
+  // Evitar falsos positivos gigantes contra pistas dejadas intencionalmente de fondo (LVL 4-6)
+  const rawLevelDiff = masker.apparentDb - target.apparentDb;
+  const cappedLevelDiff = clamp(rawLevelDiff, -8.0, 9.5);
+  const targetBgFactor = target.db < -13 ? clamp((target.db + 28) / 15, 0.22, 1.0) : 1.0;
+
+  // Margen de claridad (+5.5 dB) escalado por relevancia de plano
+  const rawMaskingDb = cappedLevelDiff - freqAttenDb - bmldReleaseDb + 5.5;
+  const maskingDb = rawMaskingDb > 0 ? rawMaskingDb * targetBgFactor : rawMaskingDb;
 
   return {
     maskingDb,
@@ -294,7 +419,7 @@ export function analyzeMixSpace(tracks, orbsMap, reverbDecay = 0.45, lufsTargetK
   const lowEndStereoWarnings = [];
 
   for (const t of tracks) {
-    if (t.isGroup || t.hidden) continue;
+    if (t.isGroup || t.hidden || t._isSilentHidden) continue;
     const isSilent = t.mute || (anySolo && !t.solo) || t.vol <= 0.01;
     if (isSilent) continue;
 
@@ -370,6 +495,7 @@ export function analyzeMixSpace(tracks, orbsMap, reverbDecay = 0.45, lufsTargetK
   }
 
   // Detector de Enmascaramiento Psicoacústico Direccional + Geometría 3D ("Solar Eclipse")
+  // Detector de Enmascaramiento Psicoacústico Direccional + Geometría 3D ("Solar Eclipse")
   const collisions = [];
   for (let i = 0; i < active.length; i++) {
     for (let j = i + 1; j < active.length; j++) {
@@ -395,13 +521,17 @@ export function analyzeMixSpace(tracks, orbsMap, reverbDecay = 0.45, lufsTargetK
       const avgHz = Math.sqrt(a.hz * b.hz);
       const isLowMud = a.hz < 380 && b.hz < 380;
       const isReverbMud = dominant.reverbBlur >= 0.35 && Math.abs((a.item.pan ?? 0) - (b.item.pan ?? 0)) > 0.35;
-      const relief = getCarveRelief(a.item, b.item, avgHz);
+      const { reliefDb, appliedCuts } = getCarveRelief(a.item, b.item, avgHz);
 
-      const psychoSev = clamp(dominant.maskingDb / 13.5, 0, 1);
-      const combinedSev = psychoSev * 0.80 + geoOverlap * 0.20;
-      const severity = clamp(combinedSev * (isLowMud ? 1.18 : 1.0) * (1 - relief), 0, 1);
+      const effectiveMaskingDb = Math.max(0, dominant.maskingDb - reliefDb);
+      if (effectiveMaskingDb <= 0.4) continue;
 
-      if (severity >= 0.28) {
+      const reliefFactor = dominant.maskingDb > 0 ? clamp(effectiveMaskingDb / dominant.maskingDb, 0.15, 1) : 1;
+      const psychoSev = clamp(effectiveMaskingDb / 13.0, 0, 1);
+      const combinedSev = psychoSev * 0.82 + geoOverlap * 0.18 * reliefFactor;
+      const severity = clamp(combinedSev * (isLowMud ? 1.15 : 1.0), 0, 1);
+
+      if (severity >= 0.26) {
         const suggested = pickSuggestedWinner(a.item, b.item);
         const masker = aIsMasker ? a.item : b.item;
         const masked = aIsMasker ? b.item : a.item;
@@ -415,7 +545,10 @@ export function analyzeMixSpace(tracks, orbsMap, reverbDecay = 0.45, lufsTargetK
           isMutual,
           suggestedWinnerId: suggested.id,
           severity,
-          maskingDb: Number(dominant.maskingDb.toFixed(1)),
+          rawMaskingDb: Number(dominant.maskingDb.toFixed(1)),
+          maskingDb: Number(effectiveMaskingDb.toFixed(1)),
+          reliefDb: Number(reliefDb.toFixed(1)),
+          appliedCuts,
           overlapPct: Math.round(severity * 100),
           avgHz,
           isLowMud,
@@ -427,6 +560,8 @@ export function analyzeMixSpace(tracks, orbsMap, reverbDecay = 0.45, lufsTargetK
       }
     }
   }
+
+  collisions.sort((x, y) => y.severity - x.severity);
 
   collisions.sort((x, y) => y.severity - x.severity);
 
@@ -445,33 +580,40 @@ export function analyzeMixSpace(tracks, orbsMap, reverbDecay = 0.45, lufsTargetK
 // =========================================================================
 // 6. ESTIMADOR SHORT-TERM LUFS (Ventana 3s desde Master Meter de Ableton)
 // =========================================================================
+// =========================================================================
+// 6. ESTIMADOR SHORT-TERM LUFS (Ventana 3s desde Master Meter de Ableton)
+//    Nota: Sin PCM, estima LUFS a partir de la envolvente del vúmetro de Live.
+// =========================================================================
 export class MasterLoudnessTracker {
   constructor(windowMs = 3000) {
     this.windowMs = windowMs;
-    this.samples = []; // [{ t, p }]
+    this.samples = []; // [{ t, p, peakDb }]
     this.peakDb = -Infinity;
     this.lastPeakTime = 0;
     this.shortTermLufs = -Infinity;
     this.clipping = false;
+    this.clipHoldUntil = 0;
+    this.rawMeterMax = 0;
+    this.crestEstimateDb = 0;
   }
 
   pushMeter(left01, right01) {
     const now = performance.now();
-    const l = Math.max(0, left01 || 0);
-    const r = Math.max(0, right01 || 0);
+    const l = clamp(Number(left01) || 0, 0, 1);
+    const r = clamp(Number(right01) || 0, 0, 1);
 
-    // Peak & Clipping: toma el canal más alto (0.85 ≈ 0 dBFS en output_meter de Live)
-    const peakLinear = Math.max(l, r);
-    const instPeakDb = abletonVolToDb(peakLinear);
+    const peakMeter = Math.max(l, r);
+    this.rawMeterMax = peakMeter;
+    const instPeakDb = abletonMeterToDb(peakMeter);
 
-    // Energía estéreo real (promedio de potencia L y R; evita sesgo de +3 dB en panes extremos)
-    const dbL = abletonVolToDb(l);
-    const dbR = abletonVolToDb(r);
-    const pL = Number.isFinite(dbL) && dbL > -70 ? Math.pow(10, dbL / 10) : 0;
-    const pR = Number.isFinite(dbR) && dbR > -70 ? Math.pow(10, dbR / 10) : 0;
+    // Energía estéreo promedio L/R calibrada a la escala real del vúmetro
+    const dbL = abletonMeterToDb(l);
+    const dbR = abletonMeterToDb(r);
+    const pL = Number.isFinite(dbL) && dbL > -68 ? Math.pow(10, dbL / 10) : 0;
+    const pR = Number.isFinite(dbR) && dbR > -68 ? Math.pow(10, dbR / 10) : 0;
     const stereoPower = (pL + pR) * 0.5;
 
-    this.samples.push({ t: now, p: stereoPower });
+    this.samples.push({ t: now, p: stereoPower, peakDb: instPeakDb });
     const cutoff = now - this.windowMs;
     while (this.samples.length > 0 && this.samples[0].t < cutoff) {
       this.samples.shift();
@@ -481,23 +623,47 @@ export class MasterLoudnessTracker {
       this.peakDb = instPeakDb;
       this.lastPeakTime = now;
     }
-    this.clipping = instPeakDb >= -0.3;
+
+    // Clipping real: 0 dBFS corresponde a ~0.92 en el vúmetro de Live (hold 1.2 s)
+    if (instPeakDb >= -0.15) {
+      this.clipHoldUntil = now + 1200;
+    }
+    this.clipping = now < this.clipHoldUntil;
 
     if (this.samples.length > 0) {
       let sumP = 0;
-      for (let i = 0; i < this.samples.length; i++) sumP += this.samples[i].p;
+      let winMaxDb = -Infinity;
+      for (let i = 0; i < this.samples.length; i++) {
+        sumP += this.samples[i].p;
+        if (this.samples[i].peakDb > winMaxDb) winMaxDb = this.samples[i].peakDb;
+      }
       const avgP = sumP / this.samples.length;
-      // Calibración BS.1770 (-0.691 dB) + compensación típica de balística peak-meter -> Short-Term LUFS (-2.2 dB)
-      this.shortTermLufs = avgP > 1e-8 ? 10 * Math.log10(avgP) - 2.9 : -Infinity;
+      if (avgP > 1e-7) {
+        const avgEnvDb = 10 * Math.log10(avgP);
+        // Compensación adaptativa: el output_meter de Live es peak-envelope suavizado,
+        // queda ~2.8 a 5.2 dB arriba del Short-Term LUFS real según la dinámica de la mezcla.
+        const envCrest = Number.isFinite(winMaxDb) ? clamp(winMaxDb - avgEnvDb, 0, 14) : 4;
+        this.crestEstimateDb = Number(envCrest.toFixed(1));
+        const envelopeToLufsOffset = clamp(2.8 + envCrest * 0.24, 2.8, 5.2);
+        this.shortTermLufs = avgEnvDb - envelopeToLufsOffset;
+      } else {
+        this.shortTermLufs = -Infinity;
+        this.crestEstimateDb = 0;
+      }
     } else {
       this.shortTermLufs = -Infinity;
+      this.crestEstimateDb = 0;
     }
   }
 
   reset() {
     this.samples = [];
     this.peakDb = -Infinity;
+    this.lastPeakTime = 0;
     this.shortTermLufs = -Infinity;
     this.clipping = false;
+    this.clipHoldUntil = 0;
+    this.rawMeterMax = 0;
+    this.crestEstimateDb = 0;
   }
 }

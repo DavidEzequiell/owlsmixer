@@ -1,11 +1,13 @@
 import * as THREE from "three";
 import {
-  store, HALF_H, clamp, xToPan, zToVol, zToSend,
+  store, HALF_H, clamp, panToX, volToZ, sendToZ, xToPan, zToVol, zToSend,
   formatPan, formatVolume, formatFreq, yToFreq, abletonVolToDb, getApparentVolumeLevel,
 } from "../store.js";
 import { abletonService } from "../services/abletonService.js";
 import { pickBandSlotForStrip, xToEqGain, eqYToFreq, GIBSON_EQ_STRIPS } from "../data/eqBands.js";
-
+import {
+  computeTrueDepthZ, solveTrueDepthDrag, directToReverbRatioDb,
+} from "../engine/psychoacoustics.js";
 export class Interaction3D {
   constructor(stage, { onUndo, onRedo, onEscape }) {
     this.stage = stage;
@@ -76,14 +78,22 @@ export class Interaction3D {
   }
 
   snapshotDragBases(targets) {
+    const zMode = store.settings.zMode;
+    const decay = store.reverbInfo.decay;
     this.dragBaseStates = targets.map((tItem) => {
       tItem.isDragging = true;
-      const orb = this.stage.orbs.get(tItem.id);
+      const logicalX = panToX(tItem.pan);
+      const logicalZ = zMode === "spatial"
+        ? sendToZ(tItem.sendA)
+        : zMode === "depth"
+          ? computeTrueDepthZ(tItem.vol, tItem.sendA, decay)
+          : volToZ(tItem.vol);
       return {
         item: tItem,
         y: tItem.y,
-         sendA: tItem.sendA,
-        startPos: orb ? orb.mesh.position.clone() : new THREE.Vector3(),
+        vol: tItem.vol,
+        sendA: tItem.sendA,
+        startPos: new THREE.Vector3(logicalX, tItem.y, logicalZ),
       };
     });
   }
@@ -240,6 +250,7 @@ export class Interaction3D {
       if (this.raycaster.ray.intersectPlane(this.dragPlane, this.dragHit)) {
         const delta = this.dragHit.clone().sub(this.dragStartWorld);
         const zMode = store.settings.zMode;
+        const decay = store.reverbInfo.decay;
         let anyApplied = false;
 
         for (const st of this.dragBaseStates) {
@@ -257,14 +268,15 @@ export class Interaction3D {
             if (zMode === "spatial") {
               st.item.sendA = zToSend(nz);
               st.item._ableton.setSendALive(st.item.sendA);
+            } else if (zMode === "depth") {
+              const solved = solveTrueDepthDrag(st.vol, st.sendA, delta.z, decay);
+              st.item.vol = solved.vol;
+              st.item.sendA = solved.sendA;
+              st.item._ableton.setVolLive(st.item.vol);
+              st.item._ableton.setSendALive(st.item.sendA);
             } else {
               st.item.vol = zToVol(nz);
               st.item._ableton.setVolLive(st.item.vol);
-              if (zMode === "depth") {
-                const dz = nz - st.startPos.z;
-                st.item.sendA = clamp(st.sendA - dz * 0.09, 0, 1);
-                st.item._ableton.setSendALive(st.item.sendA);
-              }
             }
             anyApplied = true;
           }
@@ -476,7 +488,10 @@ export class Interaction3D {
         : `🔒 <b>${item.name}</b> · Eje Y solo lectura (agregá EQ Eight)`;
     } else {
       const lvl = getApparentVolumeLevel(abletonVolToDb(item.vol));
-      html = `<b>${item.name}</b> · ${formatPan(item.pan)} · ${formatVolume(item.vol, store.settings.volUnit)} (L${lvl.lvl}) · Rev ${Math.round(item.sendA * 100)}%`;
+      const drrNote = store.settings.zMode === "depth"
+        ? ` · DRR ${Math.round(directToReverbRatioDb(item.sendA, store.reverbInfo.decay))} dB`
+        : "";
+      html = `<b>${item.name}</b> · ${formatPan(item.pan)} · ${formatVolume(item.vol, store.settings.volUnit)} (L${lvl.lvl}) · Rev ${Math.round(item.sendA * 100)}%${drrNote}`;
     }
     this.showDragTooltip(html, sx, sy);
   }
