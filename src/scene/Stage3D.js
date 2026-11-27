@@ -480,20 +480,24 @@ export class Stage3D {
 
   applyViewMode(mode) {
     const isEq = mode === "eq";
+    const wasEq = this.eqWindow.group.visible;
     this.eqWindow.group.visible = isEq;
 
     if (isEq) {
-      this.savedMixCam = {
-        pos: this.camera.position.clone(),
-        target: this.controls.target.clone(),
-      };
+      if (!wasEq) {
+        this.savedMixCam = {
+          pos: this.camera.position.clone(),
+          target: this.controls.target.clone(),
+        };
+      }
       this.camera.position.set(0, 0, 12.6);
       this.controls.target.set(0, 0, 0);
       this.controls.enableRotate = false;
       this.controls.update();
     } else {
+      this.eqWindow.clearDynamic();
       this.controls.enableRotate = true;
-      if (this.savedMixCam) {
+      if (wasEq && this.savedMixCam) {
         this.camera.position.copy(this.savedMixCam.pos);
         this.controls.target.copy(this.savedMixCam.target);
         this.controls.update();
@@ -502,7 +506,7 @@ export class Stage3D {
 
     this.applyStageSettings();
     this.updateCollisions(store.mixAnalysis?.collisions || []);
-    this.eqWindow.sync();
+    if (isEq) this.eqWindow.sync();
   }
 
   rebuildOrbs() {
@@ -630,6 +634,15 @@ export class Stage3D {
   setCameraView(viewKey) {
     const v = CAM_VIEWS[viewKey];
     if (!v) return;
+    // Si tocás 3D / Frente / Arriba estando en EQ Window, vuelve primero a Mix 3D
+    if (store.viewMode === "eq") {
+      this.savedMixCam = {
+        pos: new THREE.Vector3(...v.pos),
+        target: new THREE.Vector3(...v.target),
+      };
+      store.setViewMode("mix");
+      return;
+    }
     this.camera.position.set(...v.pos);
     this.controls.target.set(...v.target);
     this.controls.update();
@@ -658,6 +671,8 @@ export class Stage3D {
   }
 
   startLoop() {
+    this._lastCamPos = this.camera.position.clone();
+
     const tick = (now = performance.now()) => {
       requestAnimationFrame(tick);
       if (this.contextLost || document.hidden) return;
@@ -668,45 +683,70 @@ export class Stage3D {
       }
 
       this.controls.update();
-      if (this.centroidMarker.visible) this.centroidMarker.rotation.y += 0.02;
+      const camMoved = this._lastCamPos.distanceToSquared(this.camera.position) > 1e-6;
+      if (camMoved) this._lastCamPos.copy(this.camera.position);
 
-      if (this.collisionMarkers.visible && this.collisionMarkers.children.length > 0) {
-        const pulse = 1 + Math.sin(now * 0.007) * 0.18;
-        for (let i = 0; i < this.collisionMarkers.children.length; i++) {
-          const m = this.collisionMarkers.children[i];
-          m.rotation.y -= 0.03;
-          m.scale.setScalar((m.userData.baseScale || 0.18) * pulse);
-        }
-      }
+      if (store.viewMode === "mix") {
+        if (this.centroidMarker.visible) this.centroidMarker.rotation.y += 0.02;
 
-      let anyMoving = false;
-      const anySolo = store.tracks.some((t) => t.solo);
-      for (const item of store.tracks) {
-        if (!store.flashFreeze) {
-          const m = item.meter || 0;
-          item.smoothMeter += (m - item.smoothMeter) * 0.25;
-          item.peakEnv = m > (item.peakEnv || 0)
-            ? item.peakEnv + (m - item.peakEnv) * 0.60
-            : (item.peakEnv || 0) * 0.94;
-          item.rmsEnv = (item.rmsEnv || 0) + (m - (item.rmsEnv || 0)) * 0.05;
-
-          const crestRatio = item.rmsEnv > 0.015 ? Math.max(1, Math.min(5, item.peakEnv / item.rmsEnv)) : 2.0;
-          const targetCrest = item.peakEnv > 0.04
-            ? Math.max(0.80, Math.min(1.32, 1.34 - Math.log2(crestRatio) * 0.24))
-            : 1.0;
-          item.crestScale = (item.crestScale ?? 1.0) + (targetCrest - (item.crestScale ?? 1.0)) * 0.08;
+        if (this.collisionMarkers.visible && this.collisionMarkers.children.length > 0) {
+          const pulse = 1 + Math.sin(now * 0.007) * 0.18;
+          for (let i = 0; i < this.collisionMarkers.children.length; i++) {
+            const m = this.collisionMarkers.children[i];
+            m.rotation.y -= 0.03;
+            m.scale.setScalar((m.userData.baseScale || 0.18) * pulse);
+          }
         }
 
-        if (item.smoothMeter > 0.002 || item.meter > 0.002 || Math.abs((item.crestScale ?? 1) - 1) > 0.01 || item.locked) {
-          const orb = this.orbs.get(item.id);
-          if (orb && orb.group.visible) orb.sync(this.camera, anySolo);
+        let anyMoving = false;
+        const anySolo = store.tracks.some((t) => t.solo);
+        const liveSilenceFade = Boolean(store.settings.autoFadeSilent && store.isPlaying);
+
+        for (const item of store.tracks) {
+          if (!store.flashFreeze) {
+            const m = item.meter || 0;
+            item.smoothMeter += (m - item.smoothMeter) * 0.25;
+            item.peakEnv = m > (item.peakEnv || 0)
+              ? item.peakEnv + (m - item.peakEnv) * 0.60
+              : (item.peakEnv || 0) * 0.94;
+            item.rmsEnv = (item.rmsEnv || 0) + (m - (item.rmsEnv || 0)) * 0.05;
+
+            const crestRatio = item.rmsEnv > 0.015 ? Math.max(1, Math.min(5, item.peakEnv / item.rmsEnv)) : 2.0;
+            const targetCrest = item.peakEnv > 0.04
+              ? Math.max(0.80, Math.min(1.32, 1.34 - Math.log2(crestRatio) * 0.24))
+              : 1.0;
+            item.crestScale = (item.crestScale ?? 1.0) + (targetCrest - (item.crestScale ?? 1.0)) * 0.08;
+          }
+
+          const hasFreshCarve = Boolean(item._lastCarve && now - item._lastCarve.at < 2400);
+          const needsSync =
+            camMoved ||
+            liveSilenceFade ||
+            hasFreshCarve ||
+            item._isSilentHidden ||
+            item.smoothMeter > 0.002 ||
+            item.meter > 0.002 ||
+            Math.abs((item.crestScale ?? 1) - 1) > 0.01 ||
+            item.locked;
+
+          if (needsSync) {
+            const orb = this.orbs.get(item.id);
+            if (orb && !item.hidden && !(item.isGroup && !store.showBuses)) {
+              orb.sync(this.camera, anySolo);
+            }
+          }
           if (item.meter > 0.01) anyMoving = true;
         }
-      }
 
-      if (anyMoving && store.settings.autoSize && !store.flashFreeze && store.viewMode === "mix" && now - this.lastLiveAnalysis > 1500) {
-        this.lastLiveAnalysis = now;
-        this.onLiveMixTick?.();
+        if (
+          (anyMoving || liveSilenceFade) &&
+          (store.settings.autoSize || liveSilenceFade) &&
+          !store.flashFreeze &&
+          now - this.lastLiveAnalysis > 1500
+        ) {
+          this.lastLiveAnalysis = now;
+          this.onLiveMixTick?.();
+        }
       }
 
       this.renderer.render(this.scene, this.camera);

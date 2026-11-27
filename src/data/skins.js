@@ -190,4 +190,42 @@ export const SKINS = {
       sphereFlatShading: false,
     }
   },
+  youtube_2010s: {
+    name: "YouTube Classic (2011–2013)",
+    ui: {
+      "--bg-app": "#f1f1f1",
+      "--bg-panel": "#ffffff",
+      "--bg-card": "#f8f8f8",
+      "--bg-card-hover": "#efefef",
+      "--bg-card-selected": "#e8f2fc",
+      "--bg-control": "#f8f8f8",
+      "--bg-control-hover": "#ebebeb",
+      "--border": "#e2e2e2",
+      "--border-strong": "#cccccc",
+      "--text-main": "#222222",
+      "--text-muted": "#666666",
+      "--accent": "#cc181e",
+      "--accent-hover": "#b31217",
+    },
+    scene: {
+      skyClouds: false,
+      bg: 0x0f0f0f,          // Negro clásico del player de video
+      fogDensity: 0.012,
+      boxLines: 0x3a3a3a,
+      floorMain: 0x333333,
+      floorSub: 0x1d1d1d,
+      backMain: 0x2c2c2c,
+      backSub: 0x181818,
+      centerLine: 0xe62117,  // Línea roja de progreso YouTube
+      clusterLine: 0x167ac6, // Azul clásico de títulos de YouTube 2012
+      reverbCube: 0x2793e6,
+      spkCab: 0x1e1e1e,
+      spkCone: 0x0a0a0a,
+      spkRim: 0xe62117,
+      accentLight: 0xe62117,
+      sphereRoughness: 0.24,
+      sphereMetalness: 0.10,
+      sphereFlatShading: false,
+    }
+  },
 };

@@ -1,13 +1,22 @@
 import { demoService } from "./demoService.js";
 
 import { ROLES, autoDetectRole } from "../data/roles.js";
+import { computePresetRelativeOffsetDb, resolvePresetTrackVol } from "../data/presets.js";
 import { store, clamp, HALF_H } from "../store.js";
 import { computeEqYShift, computeEqLowCutScale, pickCarveBandSlot } from "../data/eqBands.js";
 import {
-  bindReturnAReverb, findTrackEqDevice, findTrackDynamicsDevice, bindEqDevice, createDefaultEqBands,
+  bindReturnAReverb, findTrackEqDevice, findTrackDynamicsDevice, bindDynamicsDevice,
+  bindEqDevice, createDefaultEqBands,
   paramToNorm, normToParam, EQ_FILTER_TYPES,
 } from "../adapters/deviceAdapters.js";
-import { MasterLoudnessTracker, computeCarvePlan, abletonVolToDb } from "../engine/psychoacoustics.js";
+import {
+  MasterLoudnessTracker, computeCarvePlan, abletonVolToDb, dbToAbletonVol,
+  formatFreq, computeTrueDepthZ, HALF_D,
+} from "../engine/psychoacoustics.js";
+import { findNearestAbletonColor } from "../data/colorTemplates.js";
+
+
+
 async function loadAbletonSdk() {
   try {
     const mod = await import("../../../ableton.js");
@@ -80,8 +89,13 @@ class AbletonService {
     return this.mode === "demo";
   }
 
+  isBusy() {
+    return Boolean(this._bankBusy || this._batchQuiet);
+  }
+
   enterDemoMode() {
     this.clearListeners();
+    store.resetSessionState();
     this.mode = "demo";
     demoService.start();
     store.emit("mode-changed", "demo");
@@ -90,6 +104,7 @@ class AbletonService {
   exitDemoMode() {
     if (this.mode === "demo") {
       demoService.stop();
+      store.resetSessionState();
       this.mode = "ableton";
       store.emit("mode-changed", "ableton");
     }
@@ -192,7 +207,7 @@ class AbletonService {
   }
 
   async scanAll() {
-     if (this.mode === "demo") {
+    if (this.mode === "demo") {
       demoService.loadDemoSession();
       return;
     }
@@ -237,8 +252,68 @@ class AbletonService {
         continue;
       }
 
+      const readClipRanges = async () => {
+        if (isGroup) return [];
+        try {
+          const clips = await t.get("arrangement_clips");
+          if (!Array.isArray(clips) || clips.length === 0) return [];
+          const ranges = await Promise.all(
+            clips.map(async (c) => {
+              const start = typeof c.raw?.start_time === "number"
+                ? c.raw.start_time
+                : Number(await c.get("start_time").catch(() => NaN));
+              const end = typeof c.raw?.end_time === "number"
+                ? c.raw.end_time
+                : Number(await c.get("end_time").catch(() => NaN));
+              const isMuted = typeof c.raw?.muted === "boolean"
+                ? c.raw.muted
+                : Boolean(await c.get("muted").catch(() => false));
+              if (Number.isFinite(start) && Number.isFinite(end) && end > start && !isMuted) {
+                return { start, end };
+              }
+              return null;
+            })
+          );
+          return ranges.filter(Boolean);
+        } catch {
+          return [];
+        }
+      };
+
+      const readPlayingSlot = async () => {
+        if (isGroup) return -1;
+        try {
+          const idx = await t.get("playing_slot_index");
+          return typeof idx === "number" ? idx : -1;
+        } catch {
+          return -1;
+        }
+      };
+
+      const readMonitoringState = async () => {
+        if (isGroup) return 1;
+        try {
+          const st = await t.get("current_monitoring_state");
+          return typeof st === "number" ? st : 1;
+        } catch {
+          return 1;
+        }
+      };
+
+      const readArm = async () => {
+        if (isGroup) return false;
+        try {
+          return Boolean(await t.get("arm"));
+        } catch {
+          return false;
+        }
+      };
+
       const devices = await t.get("devices").catch(() => []);
-      const [vol, pan, sendA, mute, solo, eqMeta, dynMeta] = await Promise.all([
+      const [
+        vol, pan, sendA, mute, solo, eqMeta, dynMeta,
+        clipRanges, playingSlotIndex, monitoringState, armed,
+      ] = await Promise.all([
         volParam.get("value"),
         panParam.get("value"),
         sendAParam ? sendAParam.get("value") : Promise.resolve(0),
@@ -246,6 +321,10 @@ class AbletonService {
         t.get("solo").then(Boolean),
         findTrackEqDevice(t, devices),
         findTrackDynamicsDevice(t, devices),
+        readClipRanges(),
+        readPlayingSlot(),
+        readMonitoringState(),
+        readArm(),
       ]);
 
       const prev = prevById.get(id);
@@ -279,6 +358,11 @@ class AbletonService {
         crestScale: 1.0,
         _eqLowCutScale: 1.0,
         eqCuts: [],
+        _lastCarve: null,
+        clipRanges,
+        playingSlotIndex,
+        monitoringState,
+        armed,
         isDragging: false,
         eq: {
           hasDevice: Boolean(eqMeta),
@@ -293,6 +377,8 @@ class AbletonService {
           deviceName: dynMeta?.deviceName || null,
           adapterName: dynMeta?.adapterName || null,
           hasSidechain: Boolean(dynMeta?.hasSidechain),
+          canDuck: Boolean(dynMeta?.canDuck),
+          duckSteps: 0,
         },
         _ableton: {
           track: t,
@@ -304,6 +390,9 @@ class AbletonService {
           eqBinding: null,
           eqBandSetters: [],
           eqUnsubs: [],
+          dynDevice: dynMeta?.device || null,
+          dynAdapter: dynMeta?.adapter || null,
+          dynBinding: null,
           setPanLive: createThrottledSetter((v) => panParam.set("value", clamp(v, -1, 1))),
           setVolLive: createThrottledSetter((v) => volParam.set("value", clamp(v, 0, 1))),
           setSendALive: createThrottledSetter((v) => sendAParam && sendAParam.set("value", clamp(v, 0, 1))),
@@ -340,6 +429,7 @@ class AbletonService {
             if (v && v !== item.name) { item.name = v; store.emit("track-renamed", item); }
           }),
           t.addListener("color", (c) => {
+            if (this._batchQuiet || performance.now() < (item._colorWriteUntil || 0)) return;
             const hex = normalizeAbletonColor(c);
             if (hex !== item.colorHex.toLowerCase()) {
               item.colorHex = hex;
@@ -360,10 +450,33 @@ class AbletonService {
         }
 
         if (t.raw.has_audio_output !== false) {
+          item._meterL = 0;
+          item._meterR = 0;
           listenerJobs.push(
             t.addListener("output_meter_left", (lvl) => {
-              if (!this._batchQuiet) item.meter = lvl || 0;
+              if (this._batchQuiet) return;
+              item._meterL = lvl || 0;
+              item.meter = Math.max(item._meterL, item._meterR);
+            }),
+            t.addListener("output_meter_right", (lvl) => {
+              if (this._batchQuiet) return;
+              item._meterR = lvl || 0;
+              item.meter = Math.max(item._meterL, item._meterR);
             })
+          );
+        }
+
+        if (!isGroup) {
+          listenerJobs.push(
+            t.addListener("playing_slot_index", (idx) => {
+              item.playingSlotIndex = typeof idx === "number" ? idx : -1;
+            }).catch(() => () => {}),
+            t.addListener("current_monitoring_state", (st) => {
+              item.monitoringState = typeof st === "number" ? st : 1;
+            }).catch(() => () => {}),
+            t.addListener("arm", (v) => {
+              item.armed = Boolean(v);
+            }).catch(() => () => {})
           );
         }
 
@@ -374,7 +487,20 @@ class AbletonService {
       }
     }
 
+    // Detectar si cambió radicalmente el proyecto de Live respecto al escaneo anterior
+    const prevNames = Array.from(prevById.values()).map((t) => `${t.isGroup ? "G" : "T"}:${(t.name || "").trim().toLowerCase()}`);
+    const nextNames = nextTracks.map((t) => `${t.isGroup ? "G" : "T"}:${(t.name || "").trim().toLowerCase()}`);
+    if (prevNames.length >= 2 && nextNames.length >= 2) {
+      const prevSet = new Set(prevNames);
+      const overlap = nextNames.filter((n) => prevSet.has(n)).length;
+      const ratio = overlap / Math.max(prevSet.size, new Set(nextNames).size);
+      if (ratio < 0.35) {
+        store.resetSessionState();
+      }
+    }
+
     store.tracks = nextTracks;
+    store.pruneInvalidSelection();
     await Promise.all([this.scanReturnAReverb(), this.bindMasterMeter()]);
     store.emit("tracks-loaded");
     if (Object.values(store.banks).every((b) => !b) && store.tracks.length > 0) {
@@ -608,19 +734,101 @@ class AbletonService {
     return true;
   }
 
-  async carveCollision(winner, loser, collision) {
-    if (!winner || !loser || loser.locked) return false;
-    const plan = computeCarvePlan(winner, loser, collision);
+  async carveCollision(winner, loser, collision, strategy = "auto") {
+    if (!winner || !loser) return { ok: false, summary: "Pistas inválidas" };
+    if (loser.locked) {
+      return { ok: false, summary: `${loser.name} está bloqueada` };
+    }
 
+    const plan = computeCarvePlan(winner, loser, collision);
+    const fmtPan = (p) => {
+      const pct = Math.round(Math.abs(p) * 50);
+      if (pct <= 1) return "C";
+      return `${pct}${p < 0 ? "L" : "R"}`;
+    };
+
+    // Estrategia explícita: Ducking / Compressor
+    if (strategy === "duck") {
+      return await this.applyDynamicsDuck(loser, winner, collision);
+    }
+
+    // Estrategia explícita: Separación estéreo (Pan / BMLD)
+    if (strategy === "pan") {
+      store.pushHistory(store.captureSnapshot());
+      const prevPan = loser.pan ?? 0;
+      let dir = Math.sign(prevPan - (winner.pan ?? 0));
+      if (dir === 0) {
+        if (Math.abs(prevPan) > 0.1) dir = Math.sign(prevPan);
+        else dir = loser.index % 2 === 0 ? -1 : 1;
+      }
+      const nextPan = clamp(prevPan + dir * 0.28, -1, 1);
+      if (Math.abs(nextPan - prevPan) < 0.02) {
+        return {
+          ok: false,
+          summary: `${loser.name} ya está en el borde estéreo (${fmtPan(prevPan)})`,
+        };
+      }
+      loser.pan = nextPan;
+      loser._mixWriteUntil = performance.now() + 450;
+      await loser._ableton.panParam.set("value", loser.pan).catch(() => {});
+      const result = {
+        ok: true,
+        strategy: "pan",
+        winnerId: winner.id,
+        loserId: loser.id,
+        summary: `Pan ${loser.name}: ${fmtPan(prevPan)} → ${fmtPan(nextPan)}`,
+        hint: "Separación estéreo (BMLD) aplicada para abrir espacio.",
+      };
+      loser._lastCarve = { at: performance.now(), ...result };
+      store.emit("track-changed", loser);
+      store.emit("carve-applied", result);
+      return result;
+    }
+
+    // Estrategia principal ("auto" o "eq"): recorte quirúrgico calibrado por ERB
     if (loser.eq?.hasDevice) {
       const ok = await this.ensureEqBound(loser);
       if (ok) {
+        const adapterId = loser._ableton.eqAdapter?.id;
+        const eqLabel = loser.eq.adapterName || "EQ";
+
+        if (adapterId === "ableton_eq_three") {
+          const bandIdx = plan.freqHz < 250 ? 0 : plan.freqHz < 2500 ? 1 : 2;
+          const bandLabel = ["Low", "Mid", "High"][bandIdx];
+          const cur = loser.eq.bands[bandIdx];
+          const nextGain = cur?.on && cur.gainDb < -0.5
+            ? clamp(cur.gainDb - 1.5, -6.5, -1.5)
+            : clamp(plan.gainDb, -6.5, -1.5);
+
+          await this.setEqBand(
+            loser,
+            bandIdx,
+            { on: true, gainDb: nextGain },
+            { immediate: true, recordHistory: true }
+          );
+
+          const result = {
+            ok: true,
+            strategy: "eq",
+            winnerId: winner.id,
+            loserId: loser.id,
+            freqHz: plan.freqHz,
+            gainDb: nextGain,
+            summary: `${eqLabel} ${bandLabel}: ${nextGain.toFixed(1)} dB en ${loser.name}`,
+            hint: nextGain <= -6.2 ? "Tope recomendado (-6.5 dB). Probá ↔ Pan o ⬇ Duck." : "",
+          };
+          loser._lastCarve = { at: performance.now(), ...result };
+          store.emit("carve-applied", result);
+          return result;
+        }
+
         const bandIdx = pickCarveBandSlot(loser.eq.bands, plan.freqHz);
         const cur = loser.eq.bands[bandIdx];
-        const nextGain =
-          cur?.on && cur.gainDb < -0.5 && Math.abs(Math.log2(cur.freqHz / plan.freqHz)) < 0.45
-            ? clamp(cur.gainDb - 2.0, -7.5, -1.5)
-            : plan.gainDb;
+        const sameZone = cur?.on && cur.gainDb < -0.5 && Math.abs(Math.log2(cur.freqHz / plan.freqHz)) < 0.45;
+        const alreadyCapped = sameZone && cur.gainDb <= -6.2;
+        const nextGain = sameZone
+          ? clamp(Number((cur.gainDb - 1.5).toFixed(1)), -6.5, -1.5)
+          : plan.gainDb;
 
         await this.setEqBand(
           loser,
@@ -634,16 +842,132 @@ class AbletonService {
           },
           { immediate: true, recordHistory: true }
         );
-        return true;
+
+        const result = {
+          ok: true,
+          strategy: "eq",
+          capped: alreadyCapped,
+          winnerId: winner.id,
+          loserId: loser.id,
+          bandNum: bandIdx + 1,
+          freqHz: plan.freqHz,
+          gainDb: nextGain,
+          summary: `${eqLabel} B${bandIdx + 1}: ${nextGain.toFixed(1)} dB @ ${formatFreq(plan.freqHz)} en ${loser.name}`,
+          hint: nextGain <= -6.2
+            ? "Recorte EQ en tope seguro (-6.5 dB). Probá ↔ Separar Pan o ⬇ Duck."
+            : `Espacio abierto para ${winner.name}.`,
+        };
+        loser._lastCarve = { at: performance.now(), ...result };
+        store.emit("carve-applied", result);
+        return result;
       }
     }
 
-    store.pushHistory(store.captureSnapshot());
-    const dir = loser.pan === winner.pan ? (loser.index % 2 === 0 ? -1 : 1) : Math.sign(loser.pan - winner.pan);
-    loser.pan = clamp(loser.pan + dir * 0.22, -1, 1);
-    await loser._ableton.panParam.set("value", loser.pan);
+    // Fallback inteligente si la pista perdedora NO tiene EQ:
+    // En graves (<160 Hz) NO paneamos (evita riesgo mono): usamos Compressor o volumen suave.
+    if (plan.freqHz < 160) {
+      if (loser.dynamics?.canDuck) {
+        return await this.applyDynamicsDuck(loser, winner, collision);
+      }
+      store.pushHistory(store.captureSnapshot());
+      const prevDb = abletonVolToDb(loser.vol);
+      const nextDb = Number.isFinite(prevDb) ? prevDb - 1.5 : -18;
+      loser.vol = dbToAbletonVol(nextDb);
+      loser._mixWriteUntil = performance.now() + 450;
+      await loser._ableton.volParam.set("value", loser.vol).catch(() => {});
+      const result = {
+        ok: true,
+        strategy: "vol",
+        winnerId: winner.id,
+        loserId: loser.id,
+        summary: `Sin EQ (<160 Hz) → ${loser.name}: -1.5 dB de nivel`,
+        hint: "Se ajustó nivel en vez de Pan para cuidar compatibilidad mono en graves.",
+      };
+      loser._lastCarve = { at: performance.now(), ...result };
+      store.emit("track-changed", loser);
+      store.emit("carve-applied", result);
+      return result;
+    }
+
+    // Si es >= 160 Hz y no tiene EQ, separamos en Pan
+    return await this.carveCollision(winner, loser, collision, "pan");
+  }
+
+  async applyDynamicsDuck(loser, winner, _collision) {
+    if (!loser || loser.locked) return { ok: false, summary: "Pista bloqueada" };
+    if (!loser.dynamics?.hasDevice || !loser.dynamics?.canDuck) {
+      return { ok: false, summary: `${loser.name} no tiene Compressor controlable` };
+    }
+
+    // Modo Demo: simula ajuste real de Threshold
+    if (this.mode === "demo") {
+      loser.dynamics.duckSteps = clamp((loser.dynamics.duckSteps || 0) + 1, 1, 4);
+      const scNote = loser.dynamics.hasSidechain
+        ? "Sidechain activo: ducking más profundo"
+        : "Compresión aplicada (en Live activá Sidechain externo desde el ganador)";
+      const result = {
+        ok: true,
+        strategy: "duck",
+        winnerId: winner.id,
+        loserId: loser.id,
+        summary: `${loser.dynamics.adapterName} (Demo) en ${loser.name}: Threshold -3 dB (paso ${loser.dynamics.duckSteps})`,
+        hint: scNote,
+      };
+      loser._lastCarve = { at: performance.now(), ...result };
+      store.emit("track-changed", loser);
+      store.emit("carve-applied", result);
+      return result;
+    }
+
+    // Ableton Live real: binding on-demand del compresor
+    if (!loser._ableton.dynBinding) {
+      loser._ableton.dynBinding = await bindDynamicsDevice(
+        loser._ableton.dynDevice,
+        loser._ableton.dynAdapter
+      );
+    }
+    const dbind = loser._ableton.dynBinding;
+    if (!dbind?.thresholdParam) {
+      return { ok: false, summary: `No se encontró Threshold en ${loser.dynamics.deviceName}` };
+    }
+
+    const thParam = dbind.thresholdParam;
+    const min = thParam._bounds?.min ?? 0;
+    const max = thParam._bounds?.max ?? 1;
+    const span = max - min;
+    const curVal = Number(await thParam.get("value").catch(() => min));
+
+    // Si expone dB directos (ej. Glue Compressor: -40..0), baja 3 dB; si es 0..1 (Compressor), baja 0.08
+    const step = span > 5 ? 3.0 : 0.08;
+    const nextVal = clamp(curVal - step, min, max);
+    await thParam.set("value", nextVal).catch(() => {});
+
+    // Chequear estado actual de Sidechain si el adapter lo expone
+    if (dbind.sidechainParam) {
+      try {
+        const scVal = await dbind.sidechainParam.get("value");
+        loser.dynamics.hasSidechain = Boolean(scVal >= 0.5);
+      } catch {}
+    }
+
+    loser.dynamics.duckSteps = clamp((loser.dynamics.duckSteps || 0) + 1, 1, 4);
+    const deltaLabel = span > 5 ? `-3.0 dB` : `-${Math.round((curVal - nextVal) * 100)}%`;
+    const scHint = loser.dynamics.hasSidechain
+      ? `Sidechain activo en ${loser.name}: ducking profundizado.`
+      : `Activá Sidechain desde "${winner.name}" en el ${loser.dynamics.adapterName} de Live para ducking dinámico.`;
+
+    const result = {
+      ok: true,
+      strategy: "duck",
+      winnerId: winner.id,
+      loserId: loser.id,
+      summary: `${loser.dynamics.adapterName} en ${loser.name}: Threshold ${deltaLabel}`,
+      hint: scHint,
+    };
+    loser._lastCarve = { at: performance.now(), ...result };
     store.emit("track-changed", loser);
-    return true;
+    store.emit("carve-applied", result);
+    return result;
   }
 
   syncEqToTrackY(item) {
@@ -736,6 +1060,8 @@ class AbletonService {
           store.masterStats.shortTermLufs = this.masterTracker.shortTermLufs;
           store.masterStats.peakDb = this.masterTracker.peakDb;
           store.masterStats.clipping = this.masterTracker.clipping;
+          store.masterStats.rawMeterMax = this.masterTracker.rawMeterMax;
+          store.masterStats.crestEstimateDb = this.masterTracker.crestEstimateDb;
           store.emit("master-meter");
         }
       };
@@ -865,16 +1191,63 @@ class AbletonService {
   }
 
   async setTrackColor(item, hexColor, recordHistory = true) {
-    const clean = normalizeAbletonColor(hexColor);
-    if (clean === item.colorHex.toLowerCase()) return;
+    const rawClean = normalizeAbletonColor(hexColor);
+    const isDemo = this.mode === "demo";
+    const nearest = isDemo ? { index: null, hex: rawClean } : findNearestAbletonColor(rawClean);
+    const finalHex = nearest.hex.toLowerCase();
+
+    if (finalHex === item.colorHex.toLowerCase()) return;
     if (recordHistory) store.pushHistory(store.captureSnapshot());
-    item.colorHex = clean;
+
+    item._colorWriteUntil = performance.now() + 1000;
+    item.colorHex = finalHex;
     store.emit("track-color-changed", item);
+
+    if (isDemo) return;
+
     try {
-      await item._ableton.track.set("color", parseInt(clean.slice(1), 16));
-    } catch (err) {
-      console.error("No se pudo cambiar color en Ableton:", err);
+      await item._ableton.track.set("color_index", nearest.index);
+    } catch {
+      try {
+        await item._ableton.track.set("color", parseInt(finalHex.slice(1), 16));
+      } catch (err) {
+        console.error("No se pudo cambiar color en Ableton:", err);
+      }
     }
+  }
+
+  async applyColorTemplate(colorMap, { includeBuses = false } = {}) {
+    if (!colorMap || this.isBusy()) return 0;
+    const targets = store.tracks.filter(
+      (t) => !t.locked && (includeBuses || !t.isGroup) && colorMap[t.role]
+    );
+    if (targets.length === 0) return 0;
+
+    store.pushHistory(store.captureSnapshot());
+    const isDemo = this.mode === "demo";
+    const guardUntil = performance.now() + 1400;
+
+    await runPool(targets, 4, async (item) => {
+      const targetHex = normalizeAbletonColor(colorMap[item.role]);
+      const nearest = isDemo ? { index: null, hex: targetHex } : findNearestAbletonColor(targetHex);
+      const finalHex = nearest.hex.toLowerCase();
+      if (finalHex === item.colorHex.toLowerCase()) return;
+
+      item._colorWriteUntil = guardUntil;
+      item.colorHex = finalHex;
+
+      if (!isDemo) {
+        try {
+          await item._ableton.track.set("color_index", nearest.index);
+        } catch {
+          await item._ableton.track.set("color", parseInt(finalHex.slice(1), 16)).catch(() => {});
+        }
+      }
+      store.emit("track-color-changed", item);
+    });
+
+    store.emit("snapshot-applied");
+    return targets.length;
   }
 
   async setMute(item, val, recordHistory = true) {
@@ -894,21 +1267,45 @@ class AbletonService {
   // =========================================================================
   // SNAPSHOT / BANCOS / DRY / PRESETS (Concurrencia paralela + Diff mínimo)
   // =========================================================================
-  async applySnapshot(snapshot, { label = "Sincronizando mezcla...", allowAudioPause = true } = {}) {
-    if (!snapshot || !Array.isArray(snapshot.tracks)) return;
+  async applySnapshot(snapshot, { label = "Sincronizando mezcla...", allowAudioPause = true, preserveMeta = false } = {}) {
+    if (!snapshot || !Array.isArray(snapshot.tracks)) return { matched: 0, total: 0 };
     if (Array.isArray(snapshot.virtualGroups)) {
       store.virtualGroups = snapshot.virtualGroups.map((g) => ({ ...g }));
     }
 
-    // Mapeo inicial y estimación de carga para decidir si conviene pausar brevemente Live
     const pairs = [];
+    const usedIds = new Set();
+    const normName = (n) => String(n || "").trim().toLowerCase();
+
+    const pickTrackForEntry = (s) => {
+      const byId = store.getTrackById(s.id);
+      if (byId && !usedIds.has(byId.id)) return byId;
+
+      if (s.name) {
+        const targetName = normName(s.name);
+        const nameCandidates = store.tracks.filter(
+          (t) => !usedIds.has(t.id) && normName(t.name) === targetName
+        );
+        if (nameCandidates.length > 0) {
+          if (typeof s.index === "number") {
+            nameCandidates.sort((a, b) => Math.abs(a.index - s.index) - Math.abs(b.index - s.index));
+          }
+          return nameCandidates[0];
+        }
+      }
+
+      if (typeof s.index === "number") {
+        const byIdx = store.tracks.find((t) => !usedIds.has(t.id) && t.index === s.index);
+        if (byIdx) return byIdx;
+      }
+      return null;
+    };
+
     let estimatedOps = 0;
     for (const s of snapshot.tracks) {
-      const item =
-        store.getTrackById(s.id) ||
-        store.tracks.find((t) => t.index === s.index) ||
-        store.tracks.find((t) => t.name === s.name);
+      const item = pickTrackForEntry(s);
       if (!item) continue;
+      usedIds.add(item.id);
       pairs.push({ item, s });
       if (Array.isArray(s.eqBands) && item.eq?.hasDevice && !item.eq.bound) estimatedOps += 8;
       if (Math.abs((s.pan ?? item.pan) - item.pan) > 0.002) estimatedOps++;
@@ -919,6 +1316,7 @@ class AbletonService {
     const shouldPause = allowAudioPause && estimatedOps >= 18;
     const touched = [];
     const lockUntil = performance.now() + 1200;
+    const isDemo = this.mode === "demo";
 
     await this._withBatchAudioGuard(shouldPause, label, async () => {
       try {
@@ -933,9 +1331,13 @@ class AbletonService {
           const nextSend = clamp(s.sendA ?? item.sendA, 0, 1);
           const nextMute = Boolean(s.mute ?? item.mute);
           const nextSolo = Boolean(s.solo ?? item.solo);
-          const nameChanged = Boolean(s.name && s.name !== item.name);
-          const nextColor = s.colorHex ? normalizeAbletonColor(s.colorHex) : item.colorHex;
-          const colorChanged = nextColor.toLowerCase() !== item.colorHex.toLowerCase();
+
+          // En cambios de Banco A/B/C/D o Escenas (preserveMeta = true), nunca pisar colores ni nombres
+          const nameChanged = !preserveMeta && Boolean(s.name && s.name !== item.name);
+          const rawNextColor = s.colorHex ? normalizeAbletonColor(s.colorHex) : item.colorHex;
+          const nearestColor = isDemo ? { index: null, hex: rawNextColor } : findNearestAbletonColor(rawNextColor);
+          const nextColor = nearestColor.hex.toLowerCase();
+          const colorChanged = !preserveMeta && nextColor !== item.colorHex.toLowerCase();
 
           const panChanged = Math.abs(nextPan - item.pan) > 0.002;
           const volChanged = Math.abs(nextVol - item.vol) > 0.002;
@@ -956,7 +1358,10 @@ class AbletonService {
           item.locked = s.locked ?? item.locked;
           item.vGroupId = s.vGroupId ?? null;
           if (nameChanged) item.name = s.name;
-          if (colorChanged) item.colorHex = nextColor;
+          if (colorChanged) {
+            item._colorWriteUntil = lockUntil;
+            item.colorHex = nextColor;
+          }
 
           const mixerWrites = [];
           if (panChanged) mixerWrites.push(item._ableton.panParam.set("value", item.pan).catch(() => {}));
@@ -967,8 +1372,12 @@ class AbletonService {
           if (muteChanged) mixerWrites.push(item._ableton.track.set("mute", item.mute).catch(() => {}));
           if (soloChanged) mixerWrites.push(item._ableton.track.set("solo", item.solo).catch(() => {}));
           if (nameChanged) mixerWrites.push(item._ableton.track.set("name", item.name).catch(() => {}));
-          if (colorChanged) {
-            mixerWrites.push(item._ableton.track.set("color", parseInt(item.colorHex.slice(1), 16)).catch(() => {}));
+          if (colorChanged && !isDemo) {
+            mixerWrites.push(
+              item._ableton.track.set("color_index", nearestColor.index).catch(() =>
+                item._ableton.track.set("color", parseInt(item.colorHex.slice(1), 16)).catch(() => {})
+              )
+            );
           }
 
           if (mixerWrites.length > 0) await Promise.all(mixerWrites);
@@ -986,7 +1395,6 @@ class AbletonService {
                 const nextOn = Boolean(cfg.on);
 
                 if (!nextOn) {
-                  // Apagar banda solo requiere 1 write (ahorra 80% de tráfico en DRY)
                   if (wasOn) {
                     eqJobs.push(this.setEqBand(item, idx, { on: false }, { immediate: true, recordHistory: false, force: true }));
                   }
@@ -1035,9 +1443,10 @@ class AbletonService {
 
     store.emit("snapshot-applied");
     store.emit("eq-changed");
+    return { matched: pairs.length, total: snapshot.tracks.length };
   }
 
-  async applyPreset(preset) {
+  async applyPreset(preset, { relativeVolume = false } = {}) {
     if (!preset || this._bankBusy) return false;
     this._bankBusy = true;
 
@@ -1073,21 +1482,30 @@ class AbletonService {
       store.pushHistory(store.captureSnapshot());
 
       const targets = store.tracks.filter((item) => !item.locked && !item.isGroup && preset.roles?.[item.role]);
+      const relInfo = relativeVolume
+        ? computePresetRelativeOffsetDb(preset, targets)
+        : { offsetDb: 0 };
+      const offsetDb = relInfo.offsetDb;
       const lockUntil = performance.now() + 1000;
+      const modeTag = relativeVolume ? " (relativo)" : "";
 
-      await this._withBatchAudioGuard(targets.length >= 10, `Aplicando ${preset.name}...`, async () => {
+      await this._withBatchAudioGuard(targets.length >= 10, `Aplicando ${preset.name}${modeTag}...`, async () => {
         try {
           await runPool(targets, 4, async (item) => {
             const target = preset.roles[item.role];
+            const nextVol = relativeVolume
+              ? resolvePresetTrackVol(target.vol, offsetDb)
+              : target.vol;
+
             item.isDragging = true;
             item._mixWriteUntil = lockUntil;
 
             const panChanged = Math.abs(target.pan - item.pan) > 0.002;
-            const volChanged = Math.abs(target.vol - item.vol) > 0.002;
+            const volChanged = Math.abs(nextVol - item.vol) > 0.002;
             const sendChanged = Math.abs(target.sendA - item.sendA) > 0.002;
 
             item.pan = target.pan;
-            item.vol = target.vol;
+            item.vol = nextVol;
             item.sendA = target.sendA;
             item.y = target.y;
             if (target.shape) item.shape = target.shape;
@@ -1150,7 +1568,10 @@ class AbletonService {
 
       store.pushHistory(store.captureSnapshot());
       store.activeBank = slot;
-      await this.applySnapshot(store.banks[slot], { label: `Cargando Banco ${slot}...` });
+      await this.applySnapshot(store.banks[slot], {
+        label: `Cargando Banco ${slot}...`,
+        preserveMeta: true,
+      });
       store.emit("banks-changed");
     } finally {
       this._bankBusy = false;
@@ -1194,6 +1615,7 @@ class AbletonService {
   }
 
   // Cambio limpio por Timeline (no ensucia Ctrl+Z ni corta la reproducción)
+  // Cambio limpio por Timeline (no ensucia Ctrl+Z, no corta reproducción y nunca pisa colores/nombres)
   async applySceneBank(slot) {
     if (this._bankBusy || !store.banks[slot]) return;
     this._bankBusy = true;
@@ -1202,6 +1624,7 @@ class AbletonService {
       await this.applySnapshot(store.banks[slot], {
         label: `Escena → Banco ${slot}...`,
         allowAudioPause: false,
+        preserveMeta: true,
       });
       store.emit("banks-changed");
     } finally {
@@ -1232,7 +1655,7 @@ class AbletonService {
     }
   }
 
-  // Modo True Depth: ajusta aire en High-Shelf (Banda 8) según profundidad Z sin pisar LPFs existentes
+  // Modo True Depth: ajusta aire en High-Shelf (Banda 8) según profundidad Z real (Vol + Reverb/DRR)
   async applyTrueDepthAir(item) {
     if (!item || item.locked || !item.eq?.hasDevice) return;
     const ok = await this.ensureEqBound(item);
@@ -1241,10 +1664,9 @@ class AbletonService {
     const b8 = item.eq.bands[7];
     if (!b8 || (b8.on && b8.type !== EQ_FILTER_TYPES.HIGH_SHELF)) return;
 
-    const db = abletonVolToDb(item.vol);
-    const clampedDb = Number.isFinite(db) ? clamp(db, -36, 6) : -36;
-    const zNorm01 = (clampedDb + 36) / 42;
-    const airDb = Math.round((-3.0 + zNorm01 * 5.0) * 10) / 10; // -3.0dB atrás -> +2.0dB frente
+    const depthZ = computeTrueDepthZ(item.vol, item.sendA, store.reverbInfo.decay);
+    const zNorm01 = clamp((depthZ + HALF_D) / (HALF_D * 2), 0, 1);
+    const airDb = Math.round((-3.0 + zNorm01 * 5.0) * 10) / 10; // -3.0 dB fondo -> +2.0 dB frente
 
     await this.setEqBand(
       item,

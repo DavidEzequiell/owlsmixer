@@ -1,5 +1,9 @@
 import { ROLES } from "../data/roles.js";
-import { store, clamp, formatVolume, formatPan, yToFreq, formatFreq, abletonVolToDb, getApparentVolumeLevel } from "../store.js";
+import { ABLETON_QUICK_SWATCHES } from "../data/colorTemplates.js";
+import {
+  store, clamp, formatVolume, formatPan, yToFreq, formatFreq,
+  abletonVolToDb, getApparentVolumeLevel,
+} from "../store.js";
 import { abletonService } from "../services/abletonService.js";
 import { getGibsonQuickEqForRole } from "../data/eqBands.js";
 
@@ -28,12 +32,10 @@ export class SidebarUI {
     this.inspSingle = document.getElementById("inspector-single");
     this.inspMulti = document.getElementById("inspector-multi");
 
-    
     this.slPan = document.getElementById("sl-pan");
     this.valPan = document.getElementById("val-pan");
     this.slVol = document.getElementById("sl-vol");
-     this.valVol = document.getElementById("val-vol");
-    
+    this.valVol = document.getElementById("val-vol");
     this.slSend = document.getElementById("sl-send");
     this.valSend = document.getElementById("val-send");
     this.slY = document.getElementById("sl-y");
@@ -44,6 +46,8 @@ export class SidebarUI {
     this.btnToggleShape = document.getElementById("btn-toggle-shape");
     this.btnToggleLock = document.getElementById("btn-toggle-lock");
     this.eqTipBox = document.getElementById("eq-tip-box");
+
+    // Popover de color
     this.colorPopover = document.getElementById("color-popover");
     this.colorPopoverTitle = document.getElementById("color-popover-title");
     this.btnCloseColorPopover = document.getElementById("btn-close-color-popover");
@@ -63,15 +67,14 @@ export class SidebarUI {
     this.trackCountEl = document.getElementById("track-count");
     this.trackListEl = document.getElementById("track-list");
 
-   
     this.multiSliderActive = false;
     this.multiBeforeSnapshot = null;
     this.multiBase = [];
     this.multiBaseAvg = { pan: 0, vol: 0, sendA: 0 };
     this.draggedTrackId = null;
     this.activeSingleSlider = null;
-     this.singleSliderBefore = null;
-
+    this.singleSliderBefore = null;
+    this._suppressNextScrollFocus = false;
 
     this.btnQuickEq = document.getElementById("btn-quick-eq");
     this.btnOpenEqWin = document.getElementById("btn-open-eq-win");
@@ -90,6 +93,15 @@ export class SidebarUI {
 
     store.on("session-autosaved", () => this.updateAutosaveBadge(false));
     store.on("session-restored", () => this.updateAutosaveBadge(true));
+    store.on("session-cleared", () => {
+      if (!this.autosaveBadge) return;
+      this.autosaveBadge.textContent = "💾 Limpiado";
+      this.autosaveBadge.classList.remove("saved-ok");
+      clearTimeout(this._autosaveBadgeTimer);
+      this._autosaveBadgeTimer = setTimeout(() => {
+        if (this.autosaveBadge) this.autosaveBadge.textContent = "💾 Auto";
+      }, 2200);
+    });
   }
 
   _normalizeSearch(str) {
@@ -102,14 +114,13 @@ export class SidebarUI {
   initTrackSearchUI() {
     if (!this.trackListEl?.parentNode) return;
 
-    // Indicador discreto de autoguardado junto al contador de pistas
     if (this.trackCountEl?.parentNode && !document.getElementById("autosave-badge")) {
       const badge = document.createElement("button");
       badge.type = "button";
       badge.id = "autosave-badge";
       badge.className = "autosave-badge";
       badge.textContent = "💾 Auto";
-      badge.title = "Autoguardado por sesión activo (clic para guardar ahora)";
+      badge.title = "Autoguardado por sesión activo (clic para guardar ahora · gestionar perfiles en ⚙ Opciones)";
       badge.addEventListener("click", (e) => {
         e.stopPropagation();
         badge.blur();
@@ -121,7 +132,6 @@ export class SidebarUI {
       this.autosaveBadge = document.getElementById("autosave-badge");
     }
 
-    // Barra compacta de buscador + filtros rápidos encima de #track-list
     const bar = document.createElement("div");
     bar.className = "track-search-bar";
     bar.innerHTML = `
@@ -176,7 +186,6 @@ export class SidebarUI {
       });
     });
 
-    // Atajo Ctrl+F para enfocar rápido el buscador de pistas
     document.addEventListener("keydown", (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
         const tag = document.activeElement?.tagName;
@@ -347,6 +356,7 @@ export class SidebarUI {
       sel[0].isDragging = true;
     };
     const endSingle = () => {
+      if (!this.activeSingleSlider && !this.singleSliderBefore) return;
       const sel = store.getSelectedTracks();
       const wasY = this.activeSingleSlider === this.slY;
       this.activeSingleSlider = null;
@@ -409,7 +419,6 @@ export class SidebarUI {
       this.updateInspector();
     });
 
-    // Ajuste manual del tamaño visual de la esfera
     this.slSize.addEventListener("input", () => {
       const sel = store.getSelectedTracks();
       if (sel.length !== 1 || sel[0].locked) return;
@@ -553,7 +562,7 @@ export class SidebarUI {
       item._ableton.setPanLive(0, true);
     });
     resetSingle(this.slVol, (item) => {
-      item.vol = 0.85; // 0.0 dB neutro de Ableton
+      item.vol = 0.85;
       item._ableton.setVolLive(0.85, true);
     });
     resetSingle(this.slSend, (item) => {
@@ -569,7 +578,6 @@ export class SidebarUI {
       item.sizeScale = 1.0;
     });
 
-    // Doble clic en sliders de Conjunto (2+ pistas)
     const resetMulti = (slider, applyFn) => {
       slider?.addEventListener("dblclick", () => {
         const sel = store.getSelectedTracks().filter((t) => !t.locked);
@@ -594,7 +602,6 @@ export class SidebarUI {
       item._ableton.setSendALive(0, true);
     });
 
-    // Doble clic en sliders de Return A Reverb
     this.slRevDecay?.addEventListener("dblclick", () => {
       if (this.slRevDecay.disabled) return;
       abletonService.setReverbDecay(0.5, true);
@@ -606,19 +613,21 @@ export class SidebarUI {
   }
 
   initColorPickerUI() {
-    const ABLETON_PALETTE = [
-      "#ff3636", "#ff7c24", "#ffd12a", "#8ce639",
-      "#1bc96b", "#00d4c8", "#2d9dff", "#5c6bff",
-      "#9c59ff", "#e859c9", "#ff8fab", "#a8b3c2",
-    ];
+    // Asegura que el popover viva directo en <body> (nunca atrapado dentro de un modal .hidden)
+    if (this.colorPopover && this.colorPopover.parentElement !== document.body) {
+      document.body.appendChild(this.colorPopover);
+    }
+
     this.colorSwatchesEl.innerHTML = "";
-    ABLETON_PALETTE.forEach((hex) => {
+    ABLETON_QUICK_SWATCHES.forEach((hex) => {
       const btn = document.createElement("button");
+      btn.type = "button";
       btn.className = "swatch-btn";
       btn.dataset.hex = hex;
       btn.style.background = hex;
       btn.title = hex;
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
         btn.blur();
         if (!this.colorTargetTrack) return;
         abletonService.setTrackColor(this.colorTargetTrack, hex, true);
@@ -633,33 +642,43 @@ export class SidebarUI {
       this.closeColorPopover();
     });
 
-    this.btnCloseColorPopover?.addEventListener("click", () => this.closeColorPopover());
+    this.btnCloseColorPopover?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.closeColorPopover();
+    });
 
     document.addEventListener("pointerdown", (e) => {
       if (
         this.colorPopover &&
         !this.colorPopover.classList.contains("hidden") &&
-        !this.colorPopover.contains(e.target)
+        !this.colorPopover.contains(e.target) &&
+        !e.target.closest?.(".track-swatch-btn")
       ) {
         this.closeColorPopover();
       }
     });
   }
-
   openColorPopover(item, clientX, clientY) {
     if (!this.colorPopover || !item) return;
+
+    if (!this.colorPopover.classList.contains("hidden") && this.colorTargetTrack?.id === item.id) {
+      this.closeColorPopover();
+      return;
+    }
+
     this.colorTargetTrack = item;
     this.colorPopoverTitle.textContent = item.name;
-    this.inpCustomColor.value = item.colorHex;
+    this.inpCustomColor.value = /^#[0-9a-f]{6}$/i.test(item.colorHex) ? item.colorHex : "#3b82f6";
     this.colorSwatchesEl.querySelectorAll(".swatch-btn").forEach((b) => {
       b.classList.toggle("active", b.dataset.hex.toLowerCase() === item.colorHex.toLowerCase());
     });
 
+    this.colorPopover.style.zIndex = "9600";
     this.colorPopover.classList.remove("hidden");
-    const pw = this.colorPopover.offsetWidth || 196;
-    const ph = this.colorPopover.offsetHeight || 130;
-    const left = Math.max(8, Math.min(window.innerWidth - pw - 8, clientX - pw + 18));
-    const top = Math.max(8, Math.min(window.innerHeight - ph - 8, clientY + 8));
+    const pw = this.colorPopover.offsetWidth || 198;
+    const ph = this.colorPopover.offsetHeight || 150;
+    const left = Math.max(8, Math.min(window.innerWidth - pw - 8, clientX - pw + 24));
+    const top = Math.max(8, Math.min(window.innerHeight - ph - 8, clientY + 10));
     this.colorPopover.style.left = `${left}px`;
     this.colorPopover.style.top = `${top}px`;
   }
@@ -672,6 +691,7 @@ export class SidebarUI {
     this.colorPopover?.classList.add("hidden");
     this.colorTargetTrack = null;
   }
+
   updateInspector() {
     const sel = store.getSelectedTracks();
     const unit = store.settings.volUnit;
@@ -712,7 +732,7 @@ export class SidebarUI {
       this.yReadonlyHint?.classList.toggle("hidden", hasEq);
 
       this.slSize.disabled = item.locked || autoOn;
-      this.slSize.title = autoOn ? "Controlado por Auto-Size (desactivalo en el Dock para ajustar manual)" : "";
+      this.slSize.title = autoOn ? "Controlado por Auto-Size (desactivalo en Opciones para ajustar manual)" : "";
       this.slSend.disabled = item.locked || !item._ableton.sendAParam;
       this.btnToggleShape.disabled = false;
       this.btnToggleLock.disabled = false;
@@ -750,7 +770,6 @@ export class SidebarUI {
       } else {
         this.eqTipBox.classList.add("hidden");
       }
-
       return;
     }
 
@@ -827,6 +846,26 @@ export class SidebarUI {
     input.addEventListener("click", (e) => e.stopPropagation());
   }
 
+  _makeClickableSwatch(item) {
+    const sw = document.createElement("span");
+    sw.setAttribute("role", "button");
+    sw.tabIndex = 0;
+    sw.draggable = false;
+    sw.className = "track-swatch track-swatch-btn";
+    sw.style.background = item.colorHex;
+    sw.title = "Clic para cambiar color (Ableton Live + 3D)";
+    sw.addEventListener("pointerdown", (e) => e.stopPropagation());
+    const openPicker = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const r = sw.getBoundingClientRect();
+      this.openColorPopover(item, r.left + r.width / 2, r.bottom);
+    };
+    sw.addEventListener("click", openPicker);
+    sw.addEventListener("contextmenu", openPicker);
+    return sw;
+  }
+
   buildTrackRow(item, isChild = false) {
     const div = document.createElement("div");
     div.className =
@@ -839,6 +878,10 @@ export class SidebarUI {
     if (!item.isGroup) {
       div.draggable = true;
       div.addEventListener("dragstart", (e) => {
+        if (e.target?.closest?.(".track-swatch-btn")) {
+          e.preventDefault();
+          return;
+        }
         this.draggedTrackId = item.id;
         div.classList.add("dragging");
         e.dataTransfer.effectAllowed = "move";
@@ -853,17 +896,13 @@ export class SidebarUI {
     chk.type = "checkbox";
     chk.className = "track-chk";
     chk.checked = store.selectedIds.has(item.id);
-    chk.addEventListener("click", (e) => { e.stopPropagation(); store.toggleInSelection(item.id); });
-
-    const sw = document.createElement("span");
-    sw.className = "track-swatch track-swatch-btn";
-    sw.style.background = item.colorHex;
-    sw.title = "Clic derecho para cambiar color (DAW + 3D)";
-    sw.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
+    chk.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.openColorPopover(item, e.clientX, e.clientY);
+      this._suppressNextScrollFocus = true;
+      store.toggleInSelection(item.id);
     });
+
+    const sw = this._makeClickableSwatch(item);
 
     const nm = document.createElement("span");
     nm.className = "track-name";
@@ -931,6 +970,7 @@ export class SidebarUI {
     });
 
     div.addEventListener("click", (e) => {
+      this._suppressNextScrollFocus = true;
       if (e.shiftKey || e.ctrlKey) store.toggleInSelection(item.id);
       else store.setSelection([item.id]);
     });
@@ -967,9 +1007,7 @@ export class SidebarUI {
       arrow.className = "collapse-arrow";
       arrow.textContent = isCollapsed ? "▶" : "▼";
 
-      const sw = document.createElement("span");
-      sw.className = "track-swatch";
-      sw.style.background = bus.colorHex;
+      const sw = this._makeClickableSwatch(bus);
 
       const title = document.createElement("span");
       title.style.flex = "1";
@@ -1097,17 +1135,41 @@ export class SidebarUI {
 
   syncSelectionHighlights() {
     this.btnClearSel.disabled = store.selectedIds.size === 0;
+    const fromListClick = Boolean(this._suppressNextScrollFocus);
+    this._suppressNextScrollFocus = false;
+
+    if (!fromListClick && store.selectedIds.size === 1) {
+      const targetId = Array.from(store.selectedIds)[0];
+      const targetTrack = store.getTrackById(targetId);
+      if (targetTrack) {
+        const parentGroupKey = targetTrack.vGroupId || targetTrack.groupId;
+        if (parentGroupKey && store.collapsedGroups.has(String(parentGroupKey))) {
+          store.collapsedGroups.delete(String(parentGroupKey));
+          this._suppressNextScrollFocus = false;
+          this.renderTrackList();
+          return;
+        }
+      }
+    }
+
+    let firstSelectedEl = null;
     document.querySelectorAll(".track-item").forEach((el) => {
       const isSel = store.selectedIds.has(el.dataset.id);
       el.classList.toggle("selected", isSel);
+      if (isSel && !firstSelectedEl) firstSelectedEl = el;
       const chk = el.querySelector(".track-chk");
       if (chk) chk.checked = isSel;
     });
+
     document.querySelectorAll(".group-chip").forEach((btn) => {
       const ids = (btn.dataset.ids || "").split(",").filter(Boolean);
       const active = ids.length > 0 && ids.length === store.selectedIds.size && ids.every((id) => store.selectedIds.has(id));
       btn.classList.toggle("active", active);
     });
+
+    if (!fromListClick && firstSelectedEl && store.selectedIds.size === 1) {
+      firstSelectedEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
   }
 
   syncMuteSoloBadges() {
@@ -1118,6 +1180,7 @@ export class SidebarUI {
       el.querySelector(".btn-solo")?.classList.toggle("soloed", item.solo);
     });
   }
+
   initScenesUI() {
     this.valSongBar = document.getElementById("val-song-bar");
     this.btnScenesAuto = document.getElementById("btn-scenes-auto");
@@ -1129,7 +1192,7 @@ export class SidebarUI {
       this.btnScenesAuto.blur();
       store.scenesAutoEnabled = !store.scenesAutoEnabled;
       store.lastSceneRuleId = null;
-      this.syncScenesUI();
+      store.emit("scenes-changed");
     });
 
     this.btnAddScene.addEventListener("click", () => {
@@ -1168,7 +1231,6 @@ export class SidebarUI {
     }
 
     scenes.forEach((r) => {
-      // ... el resto igual
       const row = document.createElement("div");
       row.className = "scene-row";
 

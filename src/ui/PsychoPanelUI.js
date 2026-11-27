@@ -13,6 +13,20 @@ export class PsychoPanelUI {
     this.valLowEnd = document.getElementById("val-lowend-pct");
     this.collisionList = document.getElementById("collision-list");
 
+    this._forceRenderUntil = 0;
+    this._feedbackTimer = null;
+
+    // Banner inline de feedback inmediato tras aplicar Priorizar / Pan / Duck
+    this.feedbackEl = document.createElement("div");
+    this.feedbackEl.className = "carve-feedback hidden";
+    this.feedbackEl.style.cssText =
+      "margin-bottom:6px;padding:6px 8px;border-radius:6px;font-size:11px;line-height:1.35;" +
+      "border:1px solid var(--ok, #22c55e);background:rgba(34,197,94,0.12);color:var(--text, inherit);" +
+      "display:flex;align-items:flex-start;justify-content:space-between;gap:6px;";
+    if (this.collisionList?.parentElement) {
+      this.collisionList.parentElement.insertBefore(this.feedbackEl, this.collisionList);
+    }
+
     Object.entries(LUFS_TARGETS).forEach(([key, cfg]) => {
       const opt = document.createElement("option");
       opt.value = key;
@@ -25,6 +39,51 @@ export class PsychoPanelUI {
       this.selTarget.blur();
       store.updateSettings({ lufsTarget: this.selTarget.value });
     });
+
+    // Refresco inmediato ante cualquier recorte aplicado
+    store.on("carve-applied", (res) => {
+      this._forceRenderUntil = performance.now() + 1600;
+      this.showCarveFeedback(res);
+    });
+  }
+
+  showCarveFeedback(res) {
+    if (!res || !this.feedbackEl) return;
+    clearTimeout(this._feedbackTimer);
+
+    const isOk = Boolean(res.ok);
+    this.feedbackEl.classList.remove("hidden");
+    this.feedbackEl.style.borderColor = isOk ? "var(--ok, #22c55e)" : "var(--warn, #f59e0b)";
+    this.feedbackEl.style.background = isOk ? "rgba(34,197,94,0.12)" : "rgba(245,158,11,0.14)";
+    this.feedbackEl.innerHTML = "";
+
+    const body = document.createElement("div");
+    const mainLine = document.createElement("div");
+    mainLine.style.fontWeight = "600";
+    mainLine.textContent = `${isOk ? "✓" : "⚠"} ${res.summary}`;
+    body.appendChild(mainLine);
+
+    if (res.hint) {
+      const hintLine = document.createElement("div");
+      hintLine.style.cssText = "opacity:0.82;font-size:10px;margin-top:2px;";
+      hintLine.textContent = res.hint;
+      body.appendChild(hintLine);
+    }
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.textContent = "✕";
+    closeBtn.title = "Ocultar aviso";
+    closeBtn.style.cssText =
+      "background:transparent;border:none;color:inherit;cursor:pointer;font-size:11px;padding:0 2px;opacity:0.75;";
+    closeBtn.addEventListener("click", () => {
+      this.feedbackEl.classList.add("hidden");
+    });
+
+    this.feedbackEl.append(body, closeBtn);
+    this._feedbackTimer = setTimeout(() => {
+      this.feedbackEl.classList.add("hidden");
+    }, 8000);
   }
 
   updateMasterMeter() {
@@ -34,23 +93,28 @@ export class PsychoPanelUI {
     if (!m.connected || !Number.isFinite(m.shortTermLufs) || m.shortTermLufs < -55) {
       this.valMasterLufs.textContent = "-- LUFS";
       this.valMasterLufs.style.color = "";
-      this.valMasterLufs.title = "Sin señal en el Master";
+      this.valMasterLufs.title = "Sin señal en el Master · Estimación por envolvente del vúmetro de Live (sin PCM)";
     } else {
-      this.valMasterLufs.textContent = `${m.shortTermLufs.toFixed(1)} LUFS`;
+      this.valMasterLufs.textContent = `~${m.shortTermLufs.toFixed(1)} LUFS`;
       const diff = m.shortTermLufs - target;
-      // Verde cerca del target, ámbar si pasa +1.5 dB, rojo si pasa +3.5 dB
+      // Verde cerca del target, ámbar si pasa +1.5 LU, rojo si pasa +3.5 LU
       this.valMasterLufs.style.color =
         diff > 3.5 ? "var(--danger)" : diff > 1.5 ? "var(--warn)" : "var(--ok)";
 
       const peakStr = Number.isFinite(m.peakDb) ? `${m.peakDb.toFixed(1)} dBFS` : "-∞ dBFS";
+      const rawStr = typeof m.rawMeterMax === "number" ? m.rawMeterMax.toFixed(2) : "--";
+      const crestStr = typeof m.crestEstimateDb === "number" ? `${m.crestEstimateDb.toFixed(1)} dB` : "--";
       const sign = diff >= 0 ? "+" : "";
-      this.valMasterLufs.title = `Peak: ${peakStr} · Objetivo: ${target} LUFS (Δ ${sign}${diff.toFixed(1)} LU)`;
+      this.valMasterLufs.title =
+        `Estimación por envolvente Live (sin PCM)\n` +
+        `Peak est.: ${peakStr} (vúmetro Live: ${rawStr}) · Dinámica: ${crestStr}\n` +
+        `Objetivo: ${target} LUFS (Δ ${sign}${diff.toFixed(1)} LU)`;
     }
 
     this.badgeClip.classList.toggle("hidden", !m.clipping);
   }
 
-  updateAnalysis() {
+  updateAnalysis(force = false) {
     const a = store.mixAnalysis;
     this.selTarget.value = store.settings.lufsTarget;
 
@@ -70,8 +134,9 @@ export class PsychoPanelUI {
         `Graves ${sb.low}% · Med-Graves ${sb.lowMid}% · Presencia ${sb.highMid}% · Aire ${sb.high}%`;
     }
 
-    // Lista clicable de colisiones ("Solar Eclipse", Visual 23) + alertas mono graves
-    if (this.collisionList.matches(":hover")) return;
+    // Permitir refresco inmediato tras click aunque el cursor siga en :hover
+    const allowWhileHover = force || performance.now() < this._forceRenderUntil;
+    if (!allowWhileHover && this.collisionList.matches(":hover")) return;
     this.collisionList.innerHTML = "";
 
     const collisions = a.collisions || [];
@@ -120,6 +185,40 @@ export class PsychoPanelUI {
         store.setSelection([c.a.id, c.b.id]);
       });
 
+      card.appendChild(headerBtn);
+
+      // Mostrar si ya existe recorte EQ o Ducking aplicado en esta colisión
+      if (Array.isArray(c.appliedCuts) && c.appliedCuts.length > 0) {
+        const appliedEl = document.createElement("div");
+        appliedEl.className = "col-applied-badge";
+        appliedEl.style.cssText = "font-size:10px;opacity:0.82;padding:2px 6px 0;color:var(--ok, #22c55e);";
+        const parts = c.appliedCuts.slice(0, 2).map((ac) =>
+          ac.isDuck
+            ? `⬇ ${ac.trackName} (${ac.hasSidechain ? "SC" : "Comp"} ×${ac.steps})`
+            : `✂ ${ac.trackName} ${ac.gainDb} dB @ ${formatFreq(ac.freqHz)}`
+        );
+        const reliefStr = c.reliefDb > 0 ? ` (−${c.reliefDb} dB alivio)` : "";
+        appliedEl.textContent = `${parts.join(" · ")}${reliefStr}`;
+        card.appendChild(appliedEl);
+      }
+
+      const runAction = async (btn, winner, loser, strategy) => {
+        btn.blur();
+        const prevTxt = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "⏳...";
+        this._forceRenderUntil = performance.now() + 1800;
+        try {
+          const res = await abletonService.carveCollision(winner, loser, c, strategy);
+          if (res && !res.ok) this.showCarveFeedback(res);
+          // Forzar re-render local mientras entra el próximo análisis
+          store.emit("request-mix-analysis");
+        } finally {
+          btn.textContent = prevTxt;
+          btn.disabled = Boolean(loser.locked);
+        }
+      };
+
       const actions = document.createElement("div");
       actions.className = "collision-actions";
 
@@ -129,20 +228,72 @@ export class PsychoPanelUI {
         const plan = computeCarvePlan(winner, loser, c);
         b.className = "mini-btn carve-btn" + (isSug ? " suggested" : "");
         b.disabled = Boolean(loser.locked);
-        b.title = loser.locked
-          ? `${loser.name} está bloqueada`
-          : `Recorta ${plan.gainDb} dB @ ${formatFreq(plan.freqHz)} en ${loser.name} para abrir lugar a ${winner.name}`;
+
+        if (loser.locked) {
+          b.title = `${loser.name} está bloqueada`;
+        } else if (loser.eq?.hasDevice) {
+          b.title = `Recorta ${plan.gainDb} dB @ ${formatFreq(plan.freqHz)} en ${loser.name} para abrir lugar a ${winner.name}`;
+        } else if (plan.freqHz < 160) {
+          b.title = loser.dynamics?.canDuck
+            ? `${loser.name} sin EQ (<160 Hz): aplica Compressor para dar lugar a ${winner.name}`
+            : `${loser.name} sin EQ (<160 Hz): atenúa -1.5 dB para cuidar graves mono`;
+        } else {
+          b.title = `${loser.name} sin EQ: separa en Pan para abrir lugar a ${winner.name}`;
+        }
+
         b.textContent = `✂ Priorizar ${winner.name}`;
-        b.addEventListener("click", async (e) => {
+        b.addEventListener("click", (e) => {
           e.stopPropagation();
-          b.blur();
-          await abletonService.carveCollision(winner, loser, c);
+          runAction(b, winner, loser, "auto");
         });
         return b;
       };
 
       actions.append(makeCarveBtn(c.a, c.b), makeCarveBtn(c.b, c.a));
-      card.append(headerBtn, actions);
+      card.appendChild(actions);
+
+      // Acciones complementarias (Separar Pan / Duck Compressor) cuando aportan valor real
+      const sugWinner = c.suggestedWinnerId === c.a.id ? c.a : c.b;
+      const sugLoser = c.suggestedWinnerId === c.a.id ? c.b : c.a;
+      const panDist = Math.abs((c.a.pan ?? 0) - (c.b.pan ?? 0));
+      const canPanSep = c.avgHz >= 160 && panDist < 0.75 && !sugLoser.locked;
+      const canDuck = Boolean(sugLoser.dynamics?.canDuck) && !sugLoser.locked;
+
+      if (canPanSep || canDuck) {
+        const extraRow = document.createElement("div");
+        extraRow.className = "collision-actions";
+        extraRow.style.marginTop = "4px";
+
+        if (canPanSep) {
+          const panBtn = document.createElement("button");
+          panBtn.className = "mini-btn carve-btn";
+          panBtn.textContent = `↔ Pan ${sugLoser.name}`;
+          panBtn.title = `Separa a ${sugLoser.name} en el panorama estéreo (BMLD) respecto a ${sugWinner.name}`;
+          panBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            runAction(panBtn, sugWinner, sugLoser, "pan");
+          });
+          extraRow.appendChild(panBtn);
+        }
+
+        if (canDuck) {
+          const duckBtn = document.createElement("button");
+          duckBtn.className = "mini-btn carve-btn";
+          const scTag = sugLoser.dynamics?.hasSidechain ? "+SC" : "Comp";
+          duckBtn.textContent = `⬇ Duck ${sugLoser.name} (${scTag})`;
+          duckBtn.title = sugLoser.dynamics?.hasSidechain
+            ? `Baja Threshold del ${sugLoser.dynamics.adapterName} con Sidechain activo en ${sugLoser.name}`
+            : `Baja Threshold del ${sugLoser.dynamics.adapterName} en ${sugLoser.name} para controlar dinámica`;
+          duckBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            runAction(duckBtn, sugWinner, sugLoser, "duck");
+          });
+          extraRow.appendChild(duckBtn);
+        }
+
+        card.appendChild(extraRow);
+      }
+
       this.collisionList.appendChild(card);
     });
 

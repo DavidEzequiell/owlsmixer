@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Owls 3D Mixer — The Art of Mixing for Ableton</title>
-  <link rel="stylesheet" href="./styles.css?v=0.0.8" />
+  <link rel="stylesheet" href="./styles.css?v=0.0.9" />
+  
   <script type="importmap">
     {
       "imports": {
@@ -147,8 +148,8 @@
         <button data-cam="top">Arriba</button>
       </div>
       <span class="pill-sep"></span>
-      <button id="btn-zmode" class="btn-ghost">Eje Z: Volumen</button>
-      <span class="help-icon" data-help="Modo Gibson (p. 40 y 304): Arrastrar adelante/atrás controla Volumen (6 niveles) y la rueda controla Reverb Send A. Modo Espacial invierte ambos.">?</span>
+     <button id="btn-zmode" class="btn-ghost">Eje Z: Volumen</button>
+      <span class="help-icon" data-help="Volumen (Gibson): Z controla Volumen y rueda controla Reverb. True Depth: Z refleja Volumen + Reverb/DRR juntos (y aire High-Shelf). Reverb: Z controla Send A y rueda controla Volumen.">?</span>
       <span class="pill-sep"></span>
 
       <!-- Menú desplegable de Capas Visuales 3D -->
@@ -608,11 +609,11 @@
             </div>
           </div>
 
-          <div class="manual-card">
+         <div class="manual-card">
             <span class="manual-num">04</span>
             <div>
               <b>Ventanas y Sidebar</b>
-              <p>Desde <b>🪟 Ventanas</b> abrís o cerrás Espacio &amp; LUFS, Return A Reverb, Escenas/Timeline, Presets, Grupos e Inspector. <b>Clic derecho</b> en el punto de color de una pista cambia su color.</p>
+              <p>Desde <b>🪟 Ventanas</b> abrís o cerrás Espacio &amp; LUFS, Return A Reverb, Escenas/Timeline, Presets, Grupos e Inspector. <b>Clic</b> en el punto de color de una pista cambia su color en Ableton + 3D.</p>
             </div>
           </div>
 
@@ -651,9 +652,10 @@
             <span><code>S</code> / <code>Alt+Clic</code> Solo</span>
             <span><code>U</code> Quitar todos los Solos</span>
             <span><code>Esc</code> Cerrar menú / Limpiar selección</span>
-            <span><code>Doble clic</code> Renombrar pista</span>
+           <span><code>Doble clic</code> Renombrar pista</span>
           </div>
         </div>
+      </div>
 
       <div id="tab-guide" class="modal-body hidden">
         <div class="book-quote">
@@ -691,12 +693,12 @@
 
       <div class="modal-footer">
         <span class="muted-note" style="margin:0;">Owls 3D Mixer · Virtual Mixer for Ableton Live</span>
-        <button id="app-version-egg" class="version-egg-btn" title="Versión actual">v0.0.8</button>
+        <button id="app-version-egg" class="version-egg-btn" title="Versión actual">v0.0.9</button>
       </div>
     </div>
   </div>
 
-  <!-- Popover flotante de Color (Clic derecho en el punto de color de una pista) -->
+  <!-- Popover flotante de Color (Clic en el punto de color de una pista) -->
   <div id="color-popover" class="color-popover hidden">
     <div class="color-popover-header">
       <span id="color-popover-title">Color de pista</span>
@@ -711,7 +713,6 @@
   <!-- Portal global para HelpTexts estilo Salesforce (?) -->
   <div id="sf-tooltip-portal" class="sf-tooltip hidden"></div>
 
-  <script type="module" src="./src/main.js"></script>
-
+  <script type="module" src="./src/main.js?v=0.0.9"></script>
 </body>
 </html>

@@ -6,7 +6,7 @@
 //   Planos medios:           -4.5 .. -7.5 dB
 //   Camas / Pads / Fondo:    -7.0 .. -10.8 dB + Reverb Send A
 
-import { dbToAbletonVol } from "../engine/psychoacoustics.js";
+import { dbToAbletonVol, abletonVolToDb, clamp } from "../engine/psychoacoustics.js";
 
 const db = (val) => Number(dbToAbletonVol(val).toFixed(3));
 
@@ -292,3 +292,48 @@ export const PRESETS = {
     }
   }
 };
+
+// Calcula el desplazamiento en dB para preservar el volumen promedio actual de la sesión
+export function computePresetRelativeOffsetDb(preset, tracks = []) {
+  if (!preset || preset.isDefaultDry || !preset.roles) {
+    return { offsetDb: 0, avgCurrentDb: null, avgPresetDb: null, matchedCount: 0 };
+  }
+
+  let sumCur = 0;
+  let sumPre = 0;
+  let count = 0;
+
+  for (const t of tracks) {
+    if (!t || t.locked || t.isGroup) continue;
+    const cfg = preset.roles[t.role];
+    if (!cfg) continue;
+
+    const curDb = abletonVolToDb(t.vol);
+    const preDb = abletonVolToDb(cfg.vol);
+    if (!Number.isFinite(curDb) || curDb <= -55 || !Number.isFinite(preDb)) continue;
+
+    sumCur += curDb;
+    sumPre += preDb;
+    count++;
+  }
+
+  if (count === 0) {
+    return { offsetDb: 0, avgCurrentDb: null, avgPresetDb: null, matchedCount: 0 };
+  }
+
+  const avgCurrentDb = sumCur / count;
+  const avgPresetDb = sumPre / count;
+  return {
+    offsetDb: clamp(avgCurrentDb - avgPresetDb, -30, 12),
+    avgCurrentDb,
+    avgPresetDb,
+    matchedCount: count,
+  };
+}
+
+export function resolvePresetTrackVol(targetVol, offsetDb = 0) {
+  if (!offsetDb || Math.abs(offsetDb) < 0.01) return targetVol;
+  const baseDb = abletonVolToDb(targetVol);
+  if (!Number.isFinite(baseDb)) return targetVol;
+  return dbToAbletonVol(clamp(baseDb + offsetDb, -42, 5.5));
+}

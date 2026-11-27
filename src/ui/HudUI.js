@@ -26,6 +26,7 @@ export class HudUI {
     this.layersDropdown = document.getElementById("layers-dropdown");
     this.btnLayersMenu = document.getElementById("btn-layers-menu");
     this.layersPopover = document.getElementById("layers-popover");
+    this._ensureExtraLayerControls();
     this.layerInputs = document.querySelectorAll("#layers-popover input[data-layer-setting]");
 
     this.btnSaveMix = document.getElementById("btn-save-mix");
@@ -200,6 +201,7 @@ export class HudUI {
 
     this.btnSettings.addEventListener("click", () => { this.btnSettings.blur(); onOpenSettings(); });
 
+
     this._initBusySpinner();
     if (typeof store.on === "function") {
       store.on("busy-state", (info) => this.setBusyState(info?.busy, info?.label));
@@ -210,6 +212,29 @@ export class HudUI {
     this.syncViewModeUI();
     this.syncBanksUI();
     this.syncWindowsMenuUI();
+  }
+
+  _ensureExtraLayerControls() {
+    if (!this.layersPopover) return;
+    const sampleLabel = this.layersPopover.querySelector("label");
+    const labelClass = sampleLabel?.className || "popover-check";
+    const extras = [
+      { key: "showTrackIcons", label: "Iconos de instrumentos" },
+      { key: "showTrackNames", label: "Nombres de pista" },
+      { key: "autoFadeSilent", label: "Ocultar sin audio (Play)" },
+    ];
+    for (const item of extras) {
+      if (this.layersPopover.querySelector(`input[data-layer-setting="${item.key}"]`)) continue;
+      const lbl = document.createElement("label");
+      lbl.className = labelClass;
+      const inp = document.createElement("input");
+      inp.type = "checkbox";
+      inp.dataset.layerSetting = item.key;
+      const span = document.createElement("span");
+      span.textContent = item.label;
+      lbl.append(inp, span);
+      this.layersPopover.appendChild(lbl);
+    }
   }
 
   _initBusySpinner() {
@@ -335,7 +360,9 @@ export class HudUI {
 
     this.layerInputs.forEach((inp) => {
       const key = inp.dataset.layerSetting;
-      if (key) inp.checked = store.settings[key] !== false;
+      if (!key) return;
+      if (key === "autoFadeSilent") inp.checked = Boolean(store.settings[key]);
+      else inp.checked = store.settings[key] !== false;
     });
   }
 
